@@ -1,0 +1,56 @@
+# MGO — Multi-chain Gas Optimizer
+> Find the cheapest gas across Ethereum, Base, Arbitrum, and Optimism in one API call.
+
+## What is MGO?
+MGO is an x402-native API that compares real-time gas prices across 4 major EVM chains and recommends the cheapest one. Built for trading agents, DeFi bots, and any AI agent that needs to optimize transaction costs.
+
+## Endpoints
+
+### GET /gas?demo=true
+Free demo — no payment required. Returns real-time gas comparison across 4 chains.
+
+### GET /gas
+Paid endpoint — $0.01 USDC (Base) for 10 API calls.
+Returns: gas prices in wei/gwei, estimated transfer costs, cheapest chain recommendation, and savings percentage.
+
+### GET /llms.txt
+This file. AI-readable service description.
+
+### GET /health
+Server health check.
+
+## Payment
+- Protocol: x402 (HTTP 402)
+- Currency: USDC on Base
+- Price: $0.01 per 10 calls
+- Flow: GET /gas → 402 response → pay USDC → receive session token → use token for 10 calls
+
+## Response Example
+```json
+{
+  "recommendation": {
+    "cheapestChain": "Base",
+    "gasPriceGwei": "0.0100",
+    "savingsPercent": "99.8%"
+  },
+  "chains": [
+    { "chain": "Ethereum", "gasPriceGwei": "12.3456" },
+    { "chain": "Base", "gasPriceGwei": "0.0100" },
+    { "chain": "Arbitrum", "gasPriceGwei": "0.0200" },
+    { "chain": "Optimism", "gasPriceGwei": "0.0150" }
+  ]
+}
+```
+
+## MCP Integration
+MGO also runs as an MCP server for Claude Desktop and Cursor.
+Tool: `get_cheapest_gas` — returns the same multi-chain gas comparison.
+
+## Use Cases
+- Trading agents optimizing execution costs
+- DeFi bots choosing cheapest chain for swaps
+- Multi-chain portfolio managers
+- Arbitrage agents comparing cross-chain costs
+
+## Tags
+x402, gas, multi-chain, ethereum, base, arbitrum, optimism, defi, trading, agent
