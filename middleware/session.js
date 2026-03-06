@@ -7,7 +7,7 @@ const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
 // Pricing per tier
 const TIER_PRICING = {
   basic:   { amount: "0.01", chains: 4, description: "4-chain comparison (ETH, Base, Arbitrum, Optimism)" },
-  premium: { amount: "0.02", chains: 6, description: "6-chain comparison (+ BNB Chain, Polygon)" },
+  premium: { amount: "0.02", chains: 9, description: "9-chain comparison (+ BNB, Polygon, Avalanche, zkSync, Hyperliquid)" },
 };
 
 function createSession(tier = "basic") {

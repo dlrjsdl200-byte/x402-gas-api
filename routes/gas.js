@@ -1,97 +1,156 @@
 const { Router } = require("express");
-const { createPublicClient, http, formatGwei } = require("viem");
-const { mainnet, base, arbitrum, optimism, bsc, polygon } = require("viem/chains");
+const { createPublicClient, http, fallback, formatGwei } = require("viem");
+const { mainnet, base, arbitrum, optimism, bsc, polygon, avalanche, zksync, hyperEvm } = require("viem/chains");
+const { getTokenPrices, nativeTokenForChain } = require("../lib/priceCache");
+const { estimateL1Fee } = require("../lib/optimismL1Fee");
 
 const router = Router();
+
+// ── Gas units for cost estimation ──
+const ETH_TRANSFER_GAS = 21000n;
+const ERC20_TRANSFER_GAS = 65000n;
+const DEX_SWAP_GAS = 150000n;
 
 // ── Basic chains (4) — $0.01 / 10 calls ──
 const basicChains = [
   {
     name: "Ethereum",
     chain: mainnet,
-    rpc: process.env.RPC_ETHEREUM || "https://eth.llamarpc.com",
+    rpcs: ["https://cloudflare-eth.com", "https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"],
     explorer: "https://etherscan.io",
     color: "#627EEA",
   },
   {
     name: "Base",
     chain: base,
-    rpc: process.env.RPC_BASE || "https://mainnet.base.org",
+    rpcs: ["https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.drpc.org"],
     explorer: "https://basescan.org",
     color: "#0052FF",
   },
   {
     name: "Arbitrum",
     chain: arbitrum,
-    rpc: process.env.RPC_ARBITRUM || "https://arb1.arbitrum.io/rpc",
+    rpcs: ["https://arbitrum-one-rpc.publicnode.com", "https://arbitrum.drpc.org", "https://arb1.arbitrum.io/rpc"],
     explorer: "https://arbiscan.io",
     color: "#28A0F0",
   },
   {
     name: "Optimism",
     chain: optimism,
-    rpc: process.env.RPC_OPTIMISM || "https://mainnet.optimism.io",
+    rpcs: ["https://optimism-rpc.publicnode.com", "https://optimism.drpc.org", "https://mainnet.optimism.io"],
     explorer: "https://optimistic.etherscan.io",
     color: "#FF0420",
   },
 ];
 
-// ── Premium-only chains (2) — included in premium tier ──
+// ── Premium-only chains (5) — included in premium tier ──
 const premiumOnlyChains = [
   {
     name: "BNB Chain",
     chain: bsc,
-    rpc: process.env.RPC_BSC || "https://bsc-dataseed.binance.org",
+    rpcs: ["https://bsc-dataseed.binance.org", "https://bsc.drpc.org", "https://bsc-rpc.publicnode.com"],
     explorer: "https://bscscan.com",
     color: "#F3BA2F",
   },
   {
     name: "Polygon",
     chain: polygon,
-    rpc: process.env.RPC_POLYGON || "https://polygon-rpc.com",
+    rpcs: ["https://polygon.drpc.org", "https://polygon-bor-rpc.publicnode.com", "https://1rpc.io/matic"],
     explorer: "https://polygonscan.com",
     color: "#8247E5",
   },
+  {
+    name: "Avalanche",
+    chain: avalanche,
+    rpcs: ["https://avalanche-c-chain-rpc.publicnode.com", "https://api.avax.network/ext/bc/C/rpc", "https://avalanche.drpc.org"],
+    explorer: "https://snowtrace.io",
+    color: "#E84142",
+  },
+  {
+    name: "zkSync Era",
+    chain: zksync,
+    rpcs: ["https://mainnet.era.zksync.io", "https://1rpc.io/zksync2-era", "https://zksync.drpc.org"],
+    explorer: "https://explorer.zksync.io",
+    color: "#8C8DFC",
+  },
+  {
+    name: "Hyperliquid",
+    chain: hyperEvm,
+    rpcs: ["https://rpc.hyperliquid.xyz/evm"],
+    explorer: "https://explorer.hyperliquid.xyz",
+    color: "#2DE6B1",
+  },
 ];
 
-// Premium = Basic + Premium-only (6 chains total)
+// Premium = Basic + Premium-only (9 chains total)
 const premiumChains = [...basicChains, ...premiumOnlyChains];
 
 function createClient(chainConfig) {
   return createPublicClient({
     chain: chainConfig.chain,
-    transport: http(chainConfig.rpc),
+    transport: fallback(
+      chainConfig.rpcs.map((url) => http(url, { timeout: 10_000 }))
+    ),
   });
 }
 
-// ── EIP-1559 gas price fetch ──
-// baseFeePerGas from latest block + estimateMaxPriorityFeePerGas
-// totalFee = baseFee + priorityFee → actual cost paid by user
-async function getGasPrice(chainConfig) {
+// Convert native token cost to USDC
+function toUsdc(nativeAmount, tokenPrice) {
+  return parseFloat((nativeAmount * tokenPrice).toFixed(6));
+}
+
+// ── Fetch gas price for a single chain ──
+async function getGasPrice(chainConfig, tokenPrices, optimismL1Fees) {
   const start = Date.now();
   try {
     const client = createClient(chainConfig);
+    const nativeToken = nativeTokenForChain(chainConfig.name);
+    const tokenPrice = tokenPrices[nativeToken] || 0;
 
     const [block, priorityFee] = await Promise.all([
       client.getBlock({ blockTag: "latest" }),
-      client.estimateMaxPriorityFeePerGas().catch(() => 100000000n), // fallback: 0.1 gwei
+      client.estimateMaxPriorityFeePerGas().catch(() => 100000000n),
     ]);
 
     const baseFee = block.baseFeePerGas ?? 0n;
     const totalFee = baseFee + priorityFee;
     const latency = Date.now() - start;
 
-    // Common gas usage estimates
-    const ETH_TRANSFER_GAS = 21000n;    // simple ETH/BNB/MATIC send
-    const ERC20_TRANSFER_GAS = 65000n;  // ERC-20 token transfer
-    const DEX_SWAP_GAS = 150000n;       // Uniswap-style DEX swap
+    // L2 execution cost in native token
+    const l2CostNative = (gasUnits) => Number(totalFee * gasUnits) / 1e18;
 
-    const costEth = (gasUnits) =>
-      (Number(totalFee * gasUnits) / 1e18).toFixed(8);
+    // Optimism: add L1 data fee (in ETH, since OP uses ETH as native)
+    const isOptimism = chainConfig.name === "Optimism";
+    const l1FeeNativeTransfer = isOptimism ? Number(optimismL1Fees.nativeTransfer) / 1e18 : 0;
+    const l1FeeErc20 = isOptimism ? Number(optimismL1Fees.erc20Transfer) / 1e18 : 0;
+    const l1FeeDex = isOptimism ? Number(optimismL1Fees.dexSwap) / 1e18 : 0;
+
+    const costs = {
+      nativeTransfer: {
+        native: (l2CostNative(ETH_TRANSFER_GAS) + l1FeeNativeTransfer).toFixed(8),
+        usdc: toUsdc(l2CostNative(ETH_TRANSFER_GAS) + l1FeeNativeTransfer, tokenPrice),
+        gasUnits: ETH_TRANSFER_GAS.toString(),
+        label: "Simple native token transfer",
+      },
+      erc20Transfer: {
+        native: (l2CostNative(ERC20_TRANSFER_GAS) + l1FeeErc20).toFixed(8),
+        usdc: toUsdc(l2CostNative(ERC20_TRANSFER_GAS) + l1FeeErc20, tokenPrice),
+        gasUnits: ERC20_TRANSFER_GAS.toString(),
+        label: "ERC-20 token transfer",
+      },
+      dexSwap: {
+        native: (l2CostNative(DEX_SWAP_GAS) + l1FeeDex).toFixed(8),
+        usdc: toUsdc(l2CostNative(DEX_SWAP_GAS) + l1FeeDex, tokenPrice),
+        gasUnits: DEX_SWAP_GAS.toString(),
+        label: "DEX swap (Uniswap-style)",
+      },
+    };
 
     return {
       chain: chainConfig.name,
       chainId: chainConfig.chain.id,
+      nativeToken,
+      tokenPriceUsd: tokenPrice,
       gasPrice: {
         baseFeeWei: baseFee.toString(),
         priorityFeeWei: priorityFee.toString(),
@@ -100,23 +159,15 @@ async function getGasPrice(chainConfig) {
         priorityFeeGwei: parseFloat(formatGwei(priorityFee)).toFixed(4),
         totalFeeGwei: parseFloat(formatGwei(totalFee)).toFixed(4),
       },
-      estimatedCosts: {
-        nativeTransfer: {
-          eth: costEth(ETH_TRANSFER_GAS),
-          gasUnits: ETH_TRANSFER_GAS.toString(),
-          label: "Simple native token transfer",
+      ...(isOptimism && {
+        l1DataFee: {
+          nativeTransferWei: optimismL1Fees.nativeTransfer.toString(),
+          erc20TransferWei: optimismL1Fees.erc20Transfer.toString(),
+          dexSwapWei: optimismL1Fees.dexSwap.toString(),
+          note: "L1 data posting fee (Ecotone formula) added to estimated costs",
         },
-        erc20Transfer: {
-          eth: costEth(ERC20_TRANSFER_GAS),
-          gasUnits: ERC20_TRANSFER_GAS.toString(),
-          label: "ERC-20 token transfer",
-        },
-        dexSwap: {
-          eth: costEth(DEX_SWAP_GAS),
-          gasUnits: DEX_SWAP_GAS.toString(),
-          label: "DEX swap (Uniswap-style)",
-        },
-      },
+      }),
+      estimatedCosts: costs,
       blockNumber: block.number?.toString(),
       explorer: chainConfig.explorer,
       latencyMs: latency,
@@ -126,6 +177,7 @@ async function getGasPrice(chainConfig) {
     return {
       chain: chainConfig.name,
       chainId: chainConfig.chain.id,
+      nativeToken: nativeTokenForChain(chainConfig.name),
       error: err.message,
       latencyMs: Date.now() - start,
       status: "error",
@@ -133,21 +185,21 @@ async function getGasPrice(chainConfig) {
   }
 }
 
+// ── Recommendation based on USDC cost ──
 function buildRecommendation(validResults) {
   if (validResults.length === 0) return null;
 
   const cheapest = validResults.reduce((min, cur) =>
-    BigInt(cur.gasPrice.totalFeeWei) < BigInt(min.gasPrice.totalFeeWei) ? cur : min
+    cur.estimatedCosts.dexSwap.usdc < min.estimatedCosts.dexSwap.usdc ? cur : min
   );
   const mostExpensive = validResults.reduce((max, cur) =>
-    BigInt(cur.gasPrice.totalFeeWei) > BigInt(max.gasPrice.totalFeeWei) ? cur : max
+    cur.estimatedCosts.dexSwap.usdc > max.estimatedCosts.dexSwap.usdc ? cur : max
   );
+
   const savingsPercent =
-    mostExpensive.gasPrice.totalFeeWei !== "0"
+    mostExpensive.estimatedCosts.dexSwap.usdc > 0
       ? (
-          (1 -
-            Number(BigInt(cheapest.gasPrice.totalFeeWei)) /
-              Number(BigInt(mostExpensive.gasPrice.totalFeeWei))) *
+          (1 - cheapest.estimatedCosts.dexSwap.usdc / mostExpensive.estimatedCosts.dexSwap.usdc) *
           100
         ).toFixed(1)
       : "0";
@@ -155,12 +207,14 @@ function buildRecommendation(validResults) {
   return {
     cheapestChain: cheapest.chain,
     cheapestChainId: cheapest.chainId,
-    totalFeeGwei: cheapest.gasPrice.totalFeeGwei,
-    baseFeeGwei: cheapest.gasPrice.baseFeeGwei,
-    priorityFeeGwei: cheapest.gasPrice.priorityFeeGwei,
-    estimatedSwapCostEth: cheapest.estimatedCosts.dexSwap.eth,
+    estimatedCostsUsdc: {
+      nativeTransfer: cheapest.estimatedCosts.nativeTransfer.usdc,
+      erc20Transfer: cheapest.estimatedCosts.erc20Transfer.usdc,
+      dexSwap: cheapest.estimatedCosts.dexSwap.usdc,
+    },
     vsExpensive: {
       chain: mostExpensive.chain,
+      dexSwapUsdc: mostExpensive.estimatedCosts.dexSwap.usdc,
       savingsPercent: `${savingsPercent}%`,
     },
     action: `Use ${cheapest.chain} — saves ${savingsPercent}% vs ${mostExpensive.chain}`,
@@ -168,20 +222,27 @@ function buildRecommendation(validResults) {
 }
 
 // ── GET /gas ──
-// Tier logic:
-//   ?demo=true          → Basic 4-chain preview (free)
-//   Basic session token → Basic 4-chain ($0.01 / 10 calls)
-//   Premium session token → Premium 6-chain ($0.02 / 10 calls)
 router.get("/", async (req, res) => {
   const isDemo = req.query.demo === "true";
   const isPremium = req.sessionTier === "premium";
   const startTime = Date.now();
 
-  // Select chain set based on tier
   const activeChains = isPremium ? premiumChains : basicChains;
 
   try {
-    const results = await Promise.allSettled(activeChains.map((c) => getGasPrice(c)));
+    // Fetch token prices + Optimism L1 fees + all gas prices in parallel
+    const optimismConfig = activeChains.find((c) => c.name === "Optimism");
+
+    const [tokenPrices, optimismL1Fees] = await Promise.all([
+      getTokenPrices().catch(() => ({ ETH: 0, BNB: 0, POL: 0, AVAX: 0, HYPE: 0 })),
+      optimismConfig
+        ? estimateL1Fee(optimismConfig.rpcs).catch(() => ({ nativeTransfer: 0n, erc20Transfer: 0n, dexSwap: 0n }))
+        : { nativeTransfer: 0n, erc20Transfer: 0n, dexSwap: 0n },
+    ]);
+
+    const results = await Promise.allSettled(
+      activeChains.map((c) => getGasPrice(c, tokenPrices, optimismL1Fees))
+    );
 
     const gasData = results.map((r) =>
       r.status === "fulfilled"
@@ -196,32 +257,39 @@ router.get("/", async (req, res) => {
       success: true,
       timestamp: new Date().toISOString(),
       tier: isDemo ? "demo" : isPremium ? "premium" : "basic",
-      gasPriceMethod: "EIP-1559 (baseFee + priorityFee from latest block)",
       totalLatencyMs: Date.now() - startTime,
+      tokenPrices,
       recommendation,
       chains: gasData,
       meta: {
         provider: "MGO — Multi-chain Gas Optimizer",
         protocol: "x402",
-        version: "1.2.0",
+        version: "2.0.0",
         tier: isDemo ? "demo" : isPremium ? "premium" : "basic",
         chainsQueried: activeChains.length,
         chainsSucceeded: validResults.length,
+        costUnit: "USDC",
+        priceSource: "CoinGecko (1-min cache)",
+        notes: [
+          "All estimated costs are in USDC for cross-chain comparison",
+          "Optimism costs include L1 data posting fee (Ecotone formula)",
+          "Gas prices shown in native gwei; USDC = native cost × token price",
+        ],
         pricing: {
           basic: "$0.01 USDC / 10 calls — 4 chains (ETH, Base, Arbitrum, Optimism)",
-          premium: "$0.02 USDC / 10 calls — 6 chains (+ BNB Chain, Polygon)",
+          premium: "$0.02 USDC / 10 calls — 9 chains (+ BNB, Polygon, Avalanche, zkSync, Hyperliquid)",
         },
       },
     };
 
     if (isDemo) {
       response.demo_notice =
-        "Free demo — Basic tier (4 chains). Pay $0.01 USDC for Basic or $0.02 USDC for Premium (6 chains).";
+        "Free demo — Basic tier (4 chains). Pay $0.01 USDC for Basic or $0.02 USDC for Premium (9 chains).";
     }
 
     if (!isPremium && !isDemo) {
       response.upgrade_notice =
-        "Upgrade to Premium ($0.02/10 calls) to unlock BNB Chain + Polygon comparisons.";
+        "Upgrade to Premium ($0.02/10 calls) to unlock BNB, Polygon, Avalanche, zkSync, Hyperliquid comparisons.";
     }
 
     res.json(response);
