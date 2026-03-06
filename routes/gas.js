@@ -1,11 +1,11 @@
 const { Router } = require("express");
 const { createPublicClient, http, formatGwei } = require("viem");
-const { mainnet, base, arbitrum, optimism } = require("viem/chains");
+const { mainnet, base, arbitrum, optimism, bsc, polygon } = require("viem/chains");
 
 const router = Router();
 
-// ── Chain configs ──
-const chains = [
+// ── Basic chains (4) — $0.01 / 10 calls ──
+const basicChains = [
   {
     name: "Ethereum",
     chain: mainnet,
@@ -36,6 +36,27 @@ const chains = [
   },
 ];
 
+// ── Premium-only chains (2) — included in premium tier ──
+const premiumOnlyChains = [
+  {
+    name: "BNB Chain",
+    chain: bsc,
+    rpc: process.env.RPC_BSC || "https://bsc-dataseed.binance.org",
+    explorer: "https://bscscan.com",
+    color: "#F3BA2F",
+  },
+  {
+    name: "Polygon",
+    chain: polygon,
+    rpc: process.env.RPC_POLYGON || "https://polygon-rpc.com",
+    explorer: "https://polygonscan.com",
+    color: "#8247E5",
+  },
+];
+
+// Premium = Basic + Premium-only (6 chains total)
+const premiumChains = [...basicChains, ...premiumOnlyChains];
+
 function createClient(chainConfig) {
   return createPublicClient({
     chain: chainConfig.chain,
@@ -44,29 +65,24 @@ function createClient(chainConfig) {
 }
 
 // ── EIP-1559 gas price fetch ──
-// Old method: client.getGasPrice() → legacy average, often inaccurate
-// New method: baseFeePerGas from latest block + estimateMaxPriorityFeePerGas
+// baseFeePerGas from latest block + estimateMaxPriorityFeePerGas
 // totalFee = baseFee + priorityFee → actual cost paid by user
 async function getGasPrice(chainConfig) {
   const start = Date.now();
   try {
     const client = createClient(chainConfig);
 
-    // Fetch latest block and priority fee estimate in parallel
     const [block, priorityFee] = await Promise.all([
       client.getBlock({ blockTag: "latest" }),
       client.estimateMaxPriorityFeePerGas().catch(() => 100000000n), // fallback: 0.1 gwei
     ]);
 
-    // baseFeePerGas: base fee burned per gas unit (set by the network per block)
-    // priorityFee: tip paid to the validator to prioritize inclusion
     const baseFee = block.baseFeePerGas ?? 0n;
     const totalFee = baseFee + priorityFee;
-
     const latency = Date.now() - start;
 
-    // Common gas usage estimates for different operation types
-    const ETH_TRANSFER_GAS = 21000n;    // simple ETH send
+    // Common gas usage estimates
+    const ETH_TRANSFER_GAS = 21000n;    // simple ETH/BNB/MATIC send
     const ERC20_TRANSFER_GAS = 65000n;  // ERC-20 token transfer
     const DEX_SWAP_GAS = 150000n;       // Uniswap-style DEX swap
 
@@ -85,10 +101,10 @@ async function getGasPrice(chainConfig) {
         totalFeeGwei: parseFloat(formatGwei(totalFee)).toFixed(4),
       },
       estimatedCosts: {
-        ethTransfer: {
+        nativeTransfer: {
           eth: costEth(ETH_TRANSFER_GAS),
           gasUnits: ETH_TRANSFER_GAS.toString(),
-          label: "Simple ETH transfer",
+          label: "Simple native token transfer",
         },
         erc20Transfer: {
           eth: costEth(ERC20_TRANSFER_GAS),
@@ -117,13 +133,55 @@ async function getGasPrice(chainConfig) {
   }
 }
 
+function buildRecommendation(validResults) {
+  if (validResults.length === 0) return null;
+
+  const cheapest = validResults.reduce((min, cur) =>
+    BigInt(cur.gasPrice.totalFeeWei) < BigInt(min.gasPrice.totalFeeWei) ? cur : min
+  );
+  const mostExpensive = validResults.reduce((max, cur) =>
+    BigInt(cur.gasPrice.totalFeeWei) > BigInt(max.gasPrice.totalFeeWei) ? cur : max
+  );
+  const savingsPercent =
+    mostExpensive.gasPrice.totalFeeWei !== "0"
+      ? (
+          (1 -
+            Number(BigInt(cheapest.gasPrice.totalFeeWei)) /
+              Number(BigInt(mostExpensive.gasPrice.totalFeeWei))) *
+          100
+        ).toFixed(1)
+      : "0";
+
+  return {
+    cheapestChain: cheapest.chain,
+    cheapestChainId: cheapest.chainId,
+    totalFeeGwei: cheapest.gasPrice.totalFeeGwei,
+    baseFeeGwei: cheapest.gasPrice.baseFeeGwei,
+    priorityFeeGwei: cheapest.gasPrice.priorityFeeGwei,
+    estimatedSwapCostEth: cheapest.estimatedCosts.dexSwap.eth,
+    vsExpensive: {
+      chain: mostExpensive.chain,
+      savingsPercent: `${savingsPercent}%`,
+    },
+    action: `Use ${cheapest.chain} — saves ${savingsPercent}% vs ${mostExpensive.chain}`,
+  };
+}
+
 // ── GET /gas ──
+// Tier logic:
+//   ?demo=true          → Basic 4-chain preview (free)
+//   Basic session token → Basic 4-chain ($0.01 / 10 calls)
+//   Premium session token → Premium 6-chain ($0.02 / 10 calls)
 router.get("/", async (req, res) => {
   const isDemo = req.query.demo === "true";
+  const isPremium = req.sessionTier === "premium";
   const startTime = Date.now();
 
+  // Select chain set based on tier
+  const activeChains = isPremium ? premiumChains : basicChains;
+
   try {
-    const results = await Promise.allSettled(chains.map((c) => getGasPrice(c)));
+    const results = await Promise.allSettled(activeChains.map((c) => getGasPrice(c)));
 
     const gasData = results.map((r) =>
       r.status === "fulfilled"
@@ -132,51 +190,12 @@ router.get("/", async (req, res) => {
     );
 
     const validResults = gasData.filter((g) => g.status === "ok");
-
-    let recommendation = null;
-    if (validResults.length > 0) {
-      // Compare by totalFeeWei (baseFee + priorityFee) — accurate EIP-1559 basis
-      const cheapest = validResults.reduce((min, cur) =>
-        BigInt(cur.gasPrice.totalFeeWei) < BigInt(min.gasPrice.totalFeeWei)
-          ? cur
-          : min
-      );
-
-      const mostExpensive = validResults.reduce((max, cur) =>
-        BigInt(cur.gasPrice.totalFeeWei) > BigInt(max.gasPrice.totalFeeWei)
-          ? cur
-          : max
-      );
-
-      const savingsPercent =
-        mostExpensive.gasPrice.totalFeeWei !== "0"
-          ? (
-              (1 -
-                Number(BigInt(cheapest.gasPrice.totalFeeWei)) /
-                  Number(BigInt(mostExpensive.gasPrice.totalFeeWei))) *
-              100
-            ).toFixed(1)
-          : "0";
-
-      recommendation = {
-        cheapestChain: cheapest.chain,
-        cheapestChainId: cheapest.chainId,
-        totalFeeGwei: cheapest.gasPrice.totalFeeGwei,
-        baseFeeGwei: cheapest.gasPrice.baseFeeGwei,
-        priorityFeeGwei: cheapest.gasPrice.priorityFeeGwei,
-        estimatedSwapCostEth: cheapest.estimatedCosts.dexSwap.eth,
-        vsExpensive: {
-          chain: mostExpensive.chain,
-          savingsPercent: `${savingsPercent}%`,
-        },
-        action: `Use ${cheapest.chain} — saves ${savingsPercent}% vs ${mostExpensive.chain}`,
-      };
-    }
+    const recommendation = buildRecommendation(validResults);
 
     const response = {
       success: true,
       timestamp: new Date().toISOString(),
-      mode: isDemo ? "demo" : "paid",
+      tier: isDemo ? "demo" : isPremium ? "premium" : "basic",
       gasPriceMethod: "EIP-1559 (baseFee + priorityFee from latest block)",
       totalLatencyMs: Date.now() - startTime,
       recommendation,
@@ -184,15 +203,25 @@ router.get("/", async (req, res) => {
       meta: {
         provider: "MGO — Multi-chain Gas Optimizer",
         protocol: "x402",
-        version: "1.1.0",
-        chainsQueried: chains.length,
+        version: "1.2.0",
+        tier: isDemo ? "demo" : isPremium ? "premium" : "basic",
+        chainsQueried: activeChains.length,
         chainsSucceeded: validResults.length,
+        pricing: {
+          basic: "$0.01 USDC / 10 calls — 4 chains (ETH, Base, Arbitrum, Optimism)",
+          premium: "$0.02 USDC / 10 calls — 6 chains (+ BNB Chain, Polygon)",
+        },
       },
     };
 
     if (isDemo) {
       response.demo_notice =
-        "Free demo mode. Pay $0.01 USDC via x402 for 10 calls with priority RPC access.";
+        "Free demo — Basic tier (4 chains). Pay $0.01 USDC for Basic or $0.02 USDC for Premium (6 chains).";
+    }
+
+    if (!isPremium && !isDemo) {
+      response.upgrade_notice =
+        "Upgrade to Premium ($0.02/10 calls) to unlock BNB Chain + Polygon comparisons.";
     }
 
     res.json(response);
