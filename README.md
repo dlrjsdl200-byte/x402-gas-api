@@ -1,7 +1,7 @@
 # MGO — Multi-chain Gas Optimizer
 
 x402 에이전트 네이티브 가스비 비교 API.
-Ethereum, Base, Arbitrum, Optimism 4개 체인 실시간 가스비를 비교해서 최저가를 추천합니다.
+최대 9개 EVM 체인 실시간 가스비를 비교해서 최저가를 추천합니다.
 
 ## 빠른 시작
 
@@ -20,14 +20,36 @@ npm run dev
 # 브라우저에서: http://localhost:3000/gas?demo=true
 ```
 
+## 티어
+
+| 기능 | Demo (무료) | Basic ($0.001) | Premium ($0.002) |
+|---|---|---|---|
+| 체인 수 | 4 | 4 | 9 |
+| 가스 가격 | O | O | O |
+| 최저가 추천 | X | O | O |
+| 절감률 계산 | X | O | O |
+| 절약액 계산 | X | O | O |
+| BNB, Polygon 등 5체인 | X | X | O |
+| Rate Limit | 10/hr, 100/day | 무제한 | 무제한 |
+
 ## 엔드포인트
 
 | 엔드포인트 | 결제 | 설명 |
 |---|---|---|
-| `GET /gas` | $0.01 (10회) | 4개 체인 가스비 비교 + 최저가 추천 |
-| `GET /gas?demo=true` | 무료 | 데모 모드 |
+| `GET /gas?demo=true` | 무료 | 데모 (raw 가스비만, 10/hr 제한) |
+| `GET /gas?txHash=0x...&tier=basic` | $0.001 / 1회 | Basic 4체인 + 추천 + 절감률 |
+| `GET /gas?txHash=0x...&tier=premium` | $0.002 / 1회 | Premium 9체인 풀스펙 |
+| `GET /gas` | — | 402 응답 (결제 안내) |
 | `GET /llms.txt` | 무료 | AI 에이전트 디스커버리 파일 |
 | `GET /health` | 무료 | 서버 상태 확인 |
+
+## 결제 플로우
+
+1. `GET /gas` → 402 응답으로 가격/지갑 주소 확인
+2. Base에서 USDC 전송 (Basic $0.001 / Premium $0.002)
+3. `GET /gas?txHash=0x...&tier=basic|premium` → 즉시 가스 데이터 응답
+
+세션 토큰 불필요. 결제 1회 → 응답 1회.
 
 ## MCP 서버 (Claude/Cursor 연동)
 

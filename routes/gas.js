@@ -11,7 +11,7 @@ const ETH_TRANSFER_GAS = 21000n;
 const ERC20_TRANSFER_GAS = 65000n;
 const DEX_SWAP_GAS = 150000n;
 
-// ── Basic chains (4) — $0.01 / 10 calls ──
+// ── Basic chains (4) — $0.001 / 1 call ──
 const basicChains = [
   {
     name: "Ethereum",
@@ -251,16 +251,32 @@ router.get("/", async (req, res) => {
     );
 
     const validResults = gasData.filter((g) => g.status === "ok");
-    const recommendation = buildRecommendation(validResults);
+
+    // Demo: no recommendation (raw gas data only)
+    const recommendation = isDemo ? null : buildRecommendation(validResults);
+
+    // Demo: strip recommendation-related fields from chain data
+    const outputChains = isDemo
+      ? gasData.map(({ estimatedCosts, ...rest }) => ({
+          ...rest,
+          estimatedCosts: estimatedCosts
+            ? {
+                nativeTransfer: { native: estimatedCosts.nativeTransfer.native, gasUnits: estimatedCosts.nativeTransfer.gasUnits, label: estimatedCosts.nativeTransfer.label },
+                erc20Transfer: { native: estimatedCosts.erc20Transfer.native, gasUnits: estimatedCosts.erc20Transfer.gasUnits, label: estimatedCosts.erc20Transfer.label },
+                dexSwap: { native: estimatedCosts.dexSwap.native, gasUnits: estimatedCosts.dexSwap.gasUnits, label: estimatedCosts.dexSwap.label },
+              }
+            : undefined,
+        }))
+      : gasData;
 
     const response = {
       success: true,
       timestamp: new Date().toISOString(),
       tier: isDemo ? "demo" : isPremium ? "premium" : "basic",
       totalLatencyMs: Date.now() - startTime,
-      tokenPrices,
+      ...(isDemo ? {} : { tokenPrices }),
       recommendation,
-      chains: gasData,
+      chains: outputChains,
       meta: {
         provider: "MGO — Multi-chain Gas Optimizer",
         protocol: "x402",
@@ -276,20 +292,20 @@ router.get("/", async (req, res) => {
           "Gas prices shown in native gwei; USDC = native cost × token price",
         ],
         pricing: {
-          basic: "$0.01 USDC / 10 calls — 4 chains (ETH, Base, Arbitrum, Optimism)",
-          premium: "$0.02 USDC / 10 calls — 9 chains (+ BNB, Polygon, Avalanche, zkSync, Hyperliquid)",
+          basic: "$0.001 USDC / 1 call — 4 chains (ETH, Base, Arbitrum, Optimism)",
+          premium: "$0.002 USDC / 1 call — 9 chains (+ BNB, Polygon, Avalanche, zkSync, Hyperliquid)",
         },
       },
     };
 
     if (isDemo) {
       response.demo_notice =
-        "Free demo — Basic tier (4 chains). Pay $0.01 USDC for Basic or $0.02 USDC for Premium (9 chains).";
+        "Free demo — raw gas prices only. Upgrade to Basic ($0.001) for recommendations & savings calculations, or Premium ($0.002) for 9-chain coverage.";
     }
 
     if (!isPremium && !isDemo) {
       response.upgrade_notice =
-        "Upgrade to Premium ($0.02/10 calls) to unlock BNB, Polygon, Avalanche, zkSync, Hyperliquid comparisons.";
+        "Upgrade to Premium ($0.002/call) to unlock BNB, Polygon, Avalanche, zkSync, Hyperliquid comparisons.";
     }
 
     res.json(response);

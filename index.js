@@ -1,7 +1,8 @@
 require("dotenv").config();
 const express = require("express");
 const gasRouter = require("./routes/gas");
-const { sessionMiddleware, createSession } = require("./middleware/session");
+const { sessionMiddleware } = require("./middleware/session");
+const { demoRateLimit } = require("./middleware/rateLimit");
 const fs = require("fs");
 const path = require("path");
 
@@ -10,8 +11,8 @@ const PORT = process.env.PORT || 3000;
 
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Session-Token");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -19,7 +20,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 
 app.get("/", (req, res) => {
-  res.json({ name: "MGO - Multi-chain Gas Optimizer", version: "1.0.0", protocol: "x402" });
+  res.json({ name: "MGO - Multi-chain Gas Optimizer", version: "1.3.0", protocol: "x402" });
 });
 
 app.get("/llms.txt", (req, res) => {
@@ -32,19 +33,7 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() });
 });
 
-app.post("/session", (req, res) => {
-  const { txHash } = req.body;
-  if (!txHash) return res.status(400).json({ error: "txHash required" });
-  const token = createSession();
-  res.json({
-    success: true,
-    sessionToken: token,
-    calls: 10,
-    message: "Include X-Session-Token header in next 10 requests"
-  });
-});
-
-app.use("/gas", sessionMiddleware, gasRouter);
+app.use("/gas", demoRateLimit, sessionMiddleware, gasRouter);
 
 app.use((err, req, res, next) => {
   console.error("[ERROR]", err.message);

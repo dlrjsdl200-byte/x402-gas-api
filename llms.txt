@@ -1,17 +1,27 @@
 # MGO — Multi-chain Gas Optimizer
-> Find the cheapest gas across Ethereum, Base, Arbitrum, and Optimism in one API call.
+> Find the cheapest gas across up to 9 EVM chains in one API call.
 
 ## What is MGO?
-MGO is an x402-native API that compares real-time gas prices across 4 major EVM chains and recommends the cheapest one. Built for trading agents, DeFi bots, and any AI agent that needs to optimize transaction costs.
+MGO is an x402-native API that compares real-time gas prices across EVM chains and recommends the cheapest one. Built for trading agents, DeFi bots, and any AI agent that needs to optimize transaction costs.
+
+## Tiers
+- **Demo** (Free): 4 chains — raw gas prices only, no recommendations. Rate limited: 10/hr, 100/day.
+- **Basic** ($0.001 USDC): 4 chains — gas prices + cheapest chain recommendation + savings % + cost savings calculation. Unlimited.
+- **Premium** ($0.002 USDC): 9 chains — all Basic features + BNB Chain, Polygon, Avalanche, zkSync Era, Hyperliquid. Unlimited.
 
 ## Endpoints
 
 ### GET /gas?demo=true
-Free demo — no payment required. Returns real-time gas comparison across 4 chains.
+Free demo — raw gas prices only (no recommendations or savings). Rate limited: 10 calls/hr per IP.
+
+### GET /gas?txHash=0x...&tier=basic
+Paid endpoint — $0.001 USDC per call. Include your payment transaction hash as a query parameter.
+
+### GET /gas?txHash=0x...&tier=premium
+Premium endpoint — $0.002 USDC per call. Returns gas comparison across all 9 chains.
 
 ### GET /gas
-Paid endpoint — $0.01 USDC (Base) for 10 API calls.
-Returns: gas prices in wei/gwei, estimated transfer costs, cheapest chain recommendation, and savings percentage.
+Returns 402 Payment Required with pricing info and payment instructions.
 
 ### GET /llms.txt
 This file. AI-readable service description.
@@ -19,18 +29,19 @@ This file. AI-readable service description.
 ### GET /health
 Server health check.
 
-## Payment
-- Protocol: x402 (HTTP 402)
-- Currency: USDC on Base
-- Price: $0.01 per 10 calls
-- Flow: GET /gas → 402 response → pay USDC → receive session token → use token for 10 calls
+## Payment Flow
+1. GET /gas → receive 402 response with pricing and receiver wallet address
+2. Send USDC on Base to the receiver address ($0.001 for Basic, $0.002 for Premium)
+3. GET /gas?txHash=0x...&tier=basic|premium → receive gas data immediately
+
+No session tokens needed. One payment, one response.
 
 ## Response Example
 ```json
 {
   "recommendation": {
     "cheapestChain": "Base",
-    "gasPriceGwei": "0.0100",
+    "estimatedCostsUsdc": { "dexSwap": 0.001234 },
     "savingsPercent": "99.8%"
   },
   "chains": [
@@ -53,4 +64,4 @@ Tool: `get_cheapest_gas` — returns the same multi-chain gas comparison.
 - Arbitrage agents comparing cross-chain costs
 
 ## Tags
-x402, gas, multi-chain, ethereum, base, arbitrum, optimism, defi, trading, agent
+x402, gas, multi-chain, ethereum, base, arbitrum, optimism, bnb, polygon, avalanche, zksync, hyperliquid, defi, trading, agent
