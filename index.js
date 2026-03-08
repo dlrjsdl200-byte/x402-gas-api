@@ -47,12 +47,98 @@ if (WALLET_ADDRESS) {
   const server = new x402ResourceServer(facilitatorClient);
   registerExactEvmScheme(server);
 
-  const gasOutputExample = {
+  const chainExample = (name, gwei, usdcCost) => ({
+    chain: name,
+    chainId: 1,
+    nativeToken: "ETH",
+    tokenPriceUsd: 3500,
+    gasPrice: { baseFeeGwei: gwei, priorityFeeGwei: "0.0010", totalFeeGwei: gwei },
+    estimatedCosts: {
+      nativeTransfer: { native: "0.00004200", usdc: 0.147, gasUnits: "21000", label: "Simple native token transfer" },
+      erc20Transfer: { native: "0.00013000", usdc: 0.455, gasUnits: "65000", label: "ERC-20 token transfer" },
+      dexSwap: { native: "0.00030000", usdc: usdcCost, gasUnits: "150000", label: "DEX swap (Uniswap-style)" },
+    },
+    status: "ok",
+  });
+
+  const outputSchema = {
+    properties: {
+      success: { type: "boolean", description: "Whether the request succeeded" },
+      timestamp: { type: "string", description: "ISO 8601 timestamp" },
+      tier: { type: "string", description: "demo | basic | premium" },
+      totalLatencyMs: { type: "number", description: "Total API response time in ms" },
+      tokenPrices: { type: "object", description: "Current native token prices in USD (e.g. ETH, BNB)" },
+      recommendation: {
+        type: "object",
+        description: "Cheapest chain recommendation with savings calculation",
+        properties: {
+          cheapestChain: { type: "string", description: "Name of the cheapest chain" },
+          cheapestChainId: { type: "number", description: "Chain ID of the cheapest chain" },
+          estimatedCostsUsdc: { type: "object", description: "USDC costs for native transfer, ERC-20, DEX swap" },
+          vsExpensive: { type: "object", description: "Comparison with most expensive chain" },
+          action: { type: "string", description: "Human-readable recommendation" },
+        },
+      },
+      chains: {
+        type: "array",
+        description: "Gas data per chain",
+        items: {
+          type: "object",
+          properties: {
+            chain: { type: "string", description: "Chain name" },
+            chainId: { type: "number", description: "EVM chain ID" },
+            nativeToken: { type: "string", description: "Native token symbol" },
+            tokenPriceUsd: { type: "number", description: "Native token price in USD" },
+            gasPrice: {
+              type: "object",
+              properties: {
+                baseFeeGwei: { type: "string" },
+                priorityFeeGwei: { type: "string" },
+                totalFeeGwei: { type: "string" },
+              },
+            },
+            estimatedCosts: {
+              type: "object",
+              description: "Cost estimates for common transaction types",
+              properties: {
+                nativeTransfer: { type: "object" },
+                erc20Transfer: { type: "object" },
+                dexSwap: { type: "object" },
+              },
+            },
+            status: { type: "string", description: "ok | error" },
+          },
+        },
+      },
+    },
+    required: ["success", "chains", "recommendation"],
+  };
+
+  const basicExample = {
     success: true,
-    recommendation: { cheapestChain: "Base", savingsPercent: "99.8%", action: "Use Base — saves 99.8% vs Ethereum" },
+    timestamp: "2026-03-08T10:00:00.000Z",
+    tier: "basic",
+    totalLatencyMs: 420,
+    tokenPrices: { ETH: 3500 },
+    recommendation: { cheapestChain: "Base", cheapestChainId: 8453, estimatedCostsUsdc: { dexSwap: 0.001 }, vsExpensive: { chain: "Ethereum", dexSwapUsdc: 5.12, savingsPercent: "99.8%" }, action: "Use Base — saves 99.8% vs Ethereum" },
     chains: [
-      { chain: "Ethereum", gasPrice: { totalFeeGwei: "12.3456" }, estimatedCosts: { dexSwap: { usdc: 5.12 } } },
-      { chain: "Base", gasPrice: { totalFeeGwei: "0.0100" }, estimatedCosts: { dexSwap: { usdc: 0.001 } } },
+      chainExample("Ethereum", "12.3456", 5.12),
+      chainExample("Base", "0.0100", 0.001),
+      chainExample("Arbitrum", "0.0200", 0.002),
+      chainExample("Optimism", "0.0150", 0.0015),
+    ],
+  };
+
+  const premiumExample = {
+    ...basicExample,
+    tier: "premium",
+    chains: [
+      ...basicExample.chains,
+      chainExample("BNB Chain", "1.0000", 0.05),
+      chainExample("Polygon", "30.0000", 0.003),
+      chainExample("Avalanche", "25.0000", 0.12),
+      chainExample("zkSync Era", "0.0250", 0.002),
+      chainExample("Hyperliquid", "0.5000", 0.01),
     ],
   };
 
@@ -62,16 +148,7 @@ if (WALLET_ADDRESS) {
       description: "MGO Basic — 4-chain gas comparison with recommendations",
       extensions: {
         ...declareDiscoveryExtension({
-          output: {
-            example: gasOutputExample,
-            schema: {
-              properties: {
-                success: { type: "boolean" },
-                recommendation: { type: "object", description: "Cheapest chain recommendation with savings %" },
-                chains: { type: "array", description: "Gas data for 4 chains (ETH, Base, Arbitrum, Optimism)" },
-              },
-            },
-          },
+          output: { example: basicExample, schema: outputSchema },
         }),
       },
     },
@@ -84,14 +161,8 @@ if (WALLET_ADDRESS) {
       extensions: {
         ...declareDiscoveryExtension({
           output: {
-            example: { ...gasOutputExample, chains: [...gasOutputExample.chains, { chain: "BNB Chain" }, { chain: "Polygon" }, { chain: "Avalanche" }, { chain: "zkSync Era" }, { chain: "Hyperliquid" }] },
-            schema: {
-              properties: {
-                success: { type: "boolean" },
-                recommendation: { type: "object", description: "Cheapest chain recommendation with savings %" },
-                chains: { type: "array", description: "Gas data for 9 chains (+ BNB, Polygon, Avalanche, zkSync, Hyperliquid)" },
-              },
-            },
+            example: premiumExample,
+            schema: { ...outputSchema, properties: { ...outputSchema.properties, chains: { ...outputSchema.properties.chains, description: "Gas data for 9 chains (ETH, Base, Arbitrum, Optimism, BNB, Polygon, Avalanche, zkSync, Hyperliquid)" } } },
           },
         }),
       },
