@@ -1,67 +1,66 @@
 # MGO — Multi-chain Gas Optimizer
 
-x402 에이전트 네이티브 가스비 비교 API.
-최대 9개 EVM 체인 실시간 가스비를 비교해서 최저가를 추천합니다.
+An x402-native API that compares real-time gas prices across up to 9 EVM chains and recommends the cheapest one. Built for trading agents, DeFi bots, and any AI agent that needs to optimize transaction costs.
 
-## 빠른 시작
+## Quick Start
 
 ```bash
-# 1. 패키지 설치
+# 1. Install dependencies
 npm install
 
-# 2. 환경 변수 설정
+# 2. Set environment variables
 cp .env.example .env
-# .env 파일에서 WALLET_ADDRESS를 본인 지갑 주소로 변경
+# Set WALLET_ADDRESS to your USDC receiving wallet on Base
 
-# 3. 로컬 실행
+# 3. Run locally
 npm run dev
 
-# 4. 테스트
-# 브라우저에서: http://localhost:3000/gas/demo
+# 4. Test
+# Open in browser: http://localhost:3000/gas/demo
 ```
 
-## 티어
+## Tiers
 
-| 기능 | Demo (무료) | Basic ($0.001) | Premium ($0.002) |
+| Feature | Demo (Free) | Basic ($0.001) | Premium ($0.002) |
 |---|---|---|---|
-| 체인 수 | 4 | 4 | 9 |
-| 가스 가격 | O | O | O |
-| 최저가 추천 | X | O | O |
-| 절감률 계산 | X | O | O |
-| 절약액 계산 | X | O | O |
-| BNB, Polygon 등 5체인 | X | X | O |
-| Rate Limit | 10/hr, 100/day | 무제한 | 무제한 |
+| Chains | 4 | 4 | 9 |
+| Gas prices | Yes | Yes | Yes |
+| Cheapest chain recommendation | No | Yes | Yes |
+| Savings % calculation | No | Yes | Yes |
+| Cost savings estimate | No | Yes | Yes |
+| BNB, Polygon, Avalanche, zkSync, Hyperliquid | No | No | Yes |
+| Rate limit | 10/hr, 100/day | Unlimited | Unlimited |
 
-## 엔드포인트
+## Endpoints
 
-| 엔드포인트 | 결제 | 설명 |
+| Endpoint | Payment | Description |
 |---|---|---|
-| `GET /gas/demo` | 무료 | 데모 (raw 가스비만, 10/hr 제한) |
-| `GET /gas/basic` | $0.001 USDC (x402) | Basic 4체인 + 추천 + 절감률 |
-| `GET /gas/premium` | $0.002 USDC (x402) | Premium 9체인 풀스펙 |
-| `GET /llms.txt` | 무료 | AI 에이전트 디스커버리 파일 |
-| `GET /health` | 무료 | 서버 상태 확인 |
+| `GET /gas/demo` | Free | Raw gas prices only (10/hr rate limit) |
+| `GET /gas/basic` | $0.001 USDC (x402) | 4-chain comparison + recommendation + savings |
+| `GET /gas/premium` | $0.002 USDC (x402) | 9-chain full comparison |
+| `GET /llms.txt` | Free | AI agent discovery file |
+| `GET /health` | Free | Server health check |
 
-## 결제 플로우 (x402 Protocol)
+## Payment Flow (x402 Protocol)
 
-1. `GET /gas/basic` 또는 `/gas/premium` → 402 응답 (payment requirements)
-2. 클라이언트가 EIP-712 서명으로 USDC 결제 승인 (x402-axios 또는 x402-fetch 사용)
-3. `X-PAYMENT` 헤더와 함께 재요청 → facilitator 검증 → 데이터 응답 → 온체인 정산
+1. `GET /gas/basic` or `/gas/premium` → 402 response with payment requirements
+2. Client signs EIP-712 USDC authorization (using x402-axios or x402-fetch)
+3. Resend with `X-PAYMENT` header → facilitator verifies → data response → on-chain settlement
 
 ```javascript
-// 클라이언트 예제 (x402-axios)
+// Client example (x402-axios)
 const { withPayment } = require("x402-axios");
 const client = withPayment(axios.create(), walletClient);
 const response = await client.get("https://api.mgo.chain-ops.xyz/gas/basic");
 ```
 
-## MCP 서버 (Claude/Cursor 연동)
+## MCP Server (Claude / Cursor)
 
 ```bash
 npm run mcp
 ```
 
-Claude Desktop 설정에 추가:
+Add to Claude Desktop config:
 ```json
 {
   "mcpServers": {
@@ -73,15 +72,15 @@ Claude Desktop 설정에 추가:
 }
 ```
 
-## Vercel 배포
+## Deploy to Vercel
 
 ```bash
 npm i -g vercel
 vercel --prod
 ```
 
-## 플랫폼 등록
+## Platform Registration
 
-1. **BlockRun** — MCP 서버 URL 등록
-2. **Dexter** — 패실리테이터 한 줄 설정
-3. **x402.org** — llms.txt 자동 크롤링
+1. **BlockRun** — Register MCP server URL
+2. **Dexter** — One-line facilitator config
+3. **x402.org** — Automatic llms.txt crawling
