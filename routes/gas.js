@@ -221,9 +221,9 @@ function buildRecommendation(validResults) {
   };
 }
 
-// ── GET /gas ──
+// ── GET / (mounted at /gas/demo, /gas/basic, /gas/premium) ──
 router.get("/", async (req, res) => {
-  const isDemo = req.query.demo === "true";
+  const isDemo = req.sessionMode === "demo";
   const isPremium = req.sessionTier === "premium";
   const startTime = Date.now();
 

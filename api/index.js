@@ -1,16 +1,19 @@
 const express = require("express");
+const { paymentMiddleware } = require("x402-express");
 const gasRouter = require("../routes/gas");
-const { sessionMiddleware, TIER_PRICING } = require("../middleware/session");
+const { demoSessionMiddleware, paidSessionMiddleware, TIER_PRICING } = require("../middleware/session");
 const { demoRateLimit } = require("../middleware/rateLimit");
 const fs = require("fs");
 const path = require("path");
 
 const app = express();
 
+const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
+
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-PAYMENT");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -20,7 +23,7 @@ app.use(express.json());
 app.get("/", (req, res) => {
   res.json({
     name: "MGO - Multi-chain Gas Optimizer",
-    version: "1.3.0",
+    version: "2.0.0",
     protocol: "x402",
     tiers: {
       basic: {
@@ -35,11 +38,17 @@ app.get("/", (req, res) => {
       },
     },
     endpoints: {
-      "/gas?txHash=0x...&tier=basic": "Paid gas comparison (basic: 4 chains)",
-      "/gas?txHash=0x...&tier=premium": "Paid gas comparison (premium: 9 chains)",
-      "/gas?demo=true": "Free Basic tier preview (4 chains)",
+      "/gas/basic": "Paid gas comparison (basic: 4 chains, $0.001 USDC via x402)",
+      "/gas/premium": "Paid gas comparison (premium: 9 chains, $0.002 USDC via x402)",
+      "/gas/demo": "Free demo (raw gas prices, 10/hr limit)",
       "/llms.txt": "AI discovery file",
       "/health": "Server health check",
+    },
+    payment: {
+      protocol: "x402 (HTTP 402 Payment Required)",
+      currency: "USDC",
+      network: "base",
+      how: "Send GET request → receive 402 with payment requirements → sign with x402-axios/x402-fetch → resend with X-PAYMENT header",
     },
   });
 });
@@ -51,10 +60,34 @@ app.get("/llms.txt", (req, res) => {
 });
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString(), version: "1.3.0" });
+  res.json({ status: "ok", timestamp: new Date().toISOString(), version: "2.0.0" });
 });
 
-app.use("/gas", demoRateLimit, sessionMiddleware, gasRouter);
+// Demo: free, rate-limited, raw gas data only
+app.use("/gas/demo", demoRateLimit, demoSessionMiddleware, gasRouter);
+
+// Paid tiers: x402 payment verification via facilitator
+if (WALLET_ADDRESS) {
+  app.use("/gas/basic",
+    paymentMiddleware(WALLET_ADDRESS, { "/": { price: "$0.001", network: "base", config: { description: "MGO Basic — 4-chain gas comparison with recommendations" } } }),
+    paidSessionMiddleware("basic"),
+    gasRouter
+  );
+
+  app.use("/gas/premium",
+    paymentMiddleware(WALLET_ADDRESS, { "/": { price: "$0.002", network: "base", config: { description: "MGO Premium — 9-chain gas comparison with full features" } } }),
+    paidSessionMiddleware("premium"),
+    gasRouter
+  );
+} else {
+  // Fallback: no wallet configured, return 503 for paid tiers
+  app.use("/gas/basic", (req, res) => {
+    res.status(503).json({ error: "Payment not configured. WALLET_ADDRESS environment variable is missing." });
+  });
+  app.use("/gas/premium", (req, res) => {
+    res.status(503).json({ error: "Payment not configured. WALLET_ADDRESS environment variable is missing." });
+  });
+}
 
 app.use((err, req, res, next) => {
   console.error("[ERROR]", err.message);

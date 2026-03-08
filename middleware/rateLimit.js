@@ -33,9 +33,6 @@ function checkAndIncrement(map, key, limit, windowMs) {
 }
 
 function demoRateLimit(req, res, next) {
-  // Only apply to demo requests
-  if (req.query.demo !== "true") return next();
-
   const ip = getClientIp(req);
   const now = Date.now();
 

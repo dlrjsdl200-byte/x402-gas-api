@@ -11,17 +11,14 @@ MGO is an x402-native API that compares real-time gas prices across EVM chains a
 
 ## Endpoints
 
-### GET /gas?demo=true
+### GET /gas/demo
 Free demo — raw gas prices only (no recommendations or savings). Rate limited: 10 calls/hr per IP.
 
-### GET /gas?txHash=0x...&tier=basic
-Paid endpoint — $0.001 USDC per call. Include your payment transaction hash as a query parameter.
+### GET /gas/basic
+Paid endpoint — $0.001 USDC per call via x402 protocol. Returns 4-chain comparison with recommendations.
 
-### GET /gas?txHash=0x...&tier=premium
-Premium endpoint — $0.002 USDC per call. Returns gas comparison across all 9 chains.
-
-### GET /gas
-Returns 402 Payment Required with pricing info and payment instructions.
+### GET /gas/premium
+Premium endpoint — $0.002 USDC per call via x402 protocol. Returns 9-chain comparison with full features.
 
 ### GET /llms.txt
 This file. AI-readable service description.
@@ -29,12 +26,20 @@ This file. AI-readable service description.
 ### GET /health
 Server health check.
 
-## Payment Flow
-1. GET /gas → receive 402 response with pricing and receiver wallet address
-2. Send USDC on Base to the receiver address ($0.001 for Basic, $0.002 for Premium)
-3. GET /gas?txHash=0x...&tier=basic|premium → receive gas data immediately
+## Payment Flow (x402 Protocol)
+1. GET /gas/basic or /gas/premium → receive 402 response with payment requirements
+2. Client signs EIP-712 USDC authorization (using x402-axios or x402-fetch)
+3. Resend request with X-PAYMENT header → facilitator verifies → data response → on-chain settlement
 
-No session tokens needed. One payment, one response.
+No manual transfers needed. Fully automated with x402 client libraries.
+
+## Client Integration
+```javascript
+// Using x402-axios (recommended)
+const { withPayment } = require("x402-axios");
+const client = withPayment(axios.create(), walletClient);
+const response = await client.get("https://api.mgo.chain-ops.xyz/gas/basic");
+```
 
 ## Response Example
 ```json

@@ -17,7 +17,7 @@ cp .env.example .env
 npm run dev
 
 # 4. 테스트
-# 브라우저에서: http://localhost:3000/gas?demo=true
+# 브라우저에서: http://localhost:3000/gas/demo
 ```
 
 ## 티어
@@ -36,20 +36,24 @@ npm run dev
 
 | 엔드포인트 | 결제 | 설명 |
 |---|---|---|
-| `GET /gas?demo=true` | 무료 | 데모 (raw 가스비만, 10/hr 제한) |
-| `GET /gas?txHash=0x...&tier=basic` | $0.001 / 1회 | Basic 4체인 + 추천 + 절감률 |
-| `GET /gas?txHash=0x...&tier=premium` | $0.002 / 1회 | Premium 9체인 풀스펙 |
-| `GET /gas` | — | 402 응답 (결제 안내) |
+| `GET /gas/demo` | 무료 | 데모 (raw 가스비만, 10/hr 제한) |
+| `GET /gas/basic` | $0.001 USDC (x402) | Basic 4체인 + 추천 + 절감률 |
+| `GET /gas/premium` | $0.002 USDC (x402) | Premium 9체인 풀스펙 |
 | `GET /llms.txt` | 무료 | AI 에이전트 디스커버리 파일 |
 | `GET /health` | 무료 | 서버 상태 확인 |
 
-## 결제 플로우
+## 결제 플로우 (x402 Protocol)
 
-1. `GET /gas` → 402 응답으로 가격/지갑 주소 확인
-2. Base에서 USDC 전송 (Basic $0.001 / Premium $0.002)
-3. `GET /gas?txHash=0x...&tier=basic|premium` → 즉시 가스 데이터 응답
+1. `GET /gas/basic` 또는 `/gas/premium` → 402 응답 (payment requirements)
+2. 클라이언트가 EIP-712 서명으로 USDC 결제 승인 (x402-axios 또는 x402-fetch 사용)
+3. `X-PAYMENT` 헤더와 함께 재요청 → facilitator 검증 → 데이터 응답 → 온체인 정산
 
-세션 토큰 불필요. 결제 1회 → 응답 1회.
+```javascript
+// 클라이언트 예제 (x402-axios)
+const { withPayment } = require("x402-axios");
+const client = withPayment(axios.create(), walletClient);
+const response = await client.get("https://api.mgo.chain-ops.xyz/gas/basic");
+```
 
 ## MCP 서버 (Claude/Cursor 연동)
 
