@@ -18,13 +18,15 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@coinbase/coinbase-sdk": "^0.25.0",
+    "@x402/axios": "^2.6.0",
     "@x402/core": "^2.6.0",
     "@x402/evm": "^2.6.0",
     "@x402/express": "^2.6.0",
     "@x402/extensions": "^2.6.0",
     "dotenv": "^16.4.5",
+    "ethers": "^6.16.0",
     "express": "^4.21.0",
+    "jose": "^6.2.0",
     "viem": "^2.21.0"
   }
 }

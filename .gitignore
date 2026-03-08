@@ -5,3 +5,9 @@ web/node_modules/
 web/dist/
 .claude/
 todo.md
+
+.vercel
+.env*.local
+test-payment.js
+cdp.js
+cdp참고.js

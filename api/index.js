@@ -1,6 +1,7 @@
 const express = require("express");
 const { paymentMiddleware, x402ResourceServer } = require("@x402/express");
 const { HTTPFacilitatorClient } = require("@x402/core/server");
+const { createCdpFacilitatorConfig } = require("../lib/cdp-auth");
 const { registerExactEvmScheme } = require("@x402/evm/exact/server");
 const { declareDiscoveryExtension } = require("@x402/extensions/bazaar");
 const gasRouter = require("../routes/gas");
@@ -71,7 +72,9 @@ app.use("/gas/demo", demoRateLimit, demoSessionMiddleware, gasRouter);
 
 // Paid tiers: x402 payment verification via facilitator + Bazaar discoverable
 if (WALLET_ADDRESS) {
-  const facilitatorClient = new HTTPFacilitatorClient({ url: "https://facilitator.xpay.sh" });
+  const facilitatorClient = new HTTPFacilitatorClient(
+    createCdpFacilitatorConfig(process.env.CDP_API_KEY_ID, process.env.CDP_API_KEY_SECRET)
+  );
   const server = new x402ResourceServer(facilitatorClient);
   registerExactEvmScheme(server);
 
