@@ -1,72 +1,206 @@
 # MGO — Multi-chain Gas Optimizer
-> Find the cheapest gas across up to 9 EVM chains in one API call.
+> Compare real-time gas costs across EVM chains in one API call. Find the cheapest chain before executing transactions.
 
-## What is MGO?
-MGO is an x402-native API that compares real-time gas prices across EVM chains and recommends the cheapest one. Built for trading agents, DeFi bots, and any AI agent that needs to optimize transaction costs.
+Base URL: https://api.mgo.chain-ops.xyz
+
+## Why pay for this?
+A single DEX swap on Ethereum can cost $5–50+ in gas. MGO compares gas costs across multiple chains in real-time and tells you which chain is cheapest — potentially saving 90–99% on transaction fees. The API costs $0.001–$0.002 USDC per call, which is negligible compared to the gas savings it identifies.
 
 ## Tiers
-- **Demo** (Free): 4 chains — raw gas prices only, no recommendations. Rate limited: 10/hr, 100/day.
-- **Basic** ($0.001 USDC): 4 chains — gas prices + cheapest chain recommendation + savings % + cost savings calculation. Unlimited.
-- **Premium** ($0.002 USDC): 9 chains — all Basic features + BNB Chain, Polygon, Avalanche, zkSync Era, Hyperliquid. Unlimited.
+
+### Demo (Free)
+- **Price**: Free
+- **Chains**: 4 (Ethereum, Base, Arbitrum, Optimism)
+- **Data**: Gas prices (gwei + wei) + estimated costs in native token only (no USDC conversion, no recommendation)
+- **Limits**: 10 calls/hr, 100 calls/day per IP
+
+### Basic ($0.001 USDC per call)
+- **Price**: $0.001 USDC on Base network
+- **Chains**: 4 (Ethereum, Base, Arbitrum, Optimism)
+- **Data**: Gas prices + USDC cost estimates + cheapest chain recommendation + savings % vs most expensive chain + token prices
+- **Limits**: Unlimited
+
+### Premium ($0.002 USDC per call)
+- **Price**: $0.002 USDC on Base network
+- **Chains**: 9 (Ethereum, Base, Arbitrum, Optimism, BNB Chain, Polygon, Avalanche, zkSync Era, Hyperliquid)
+- **Data**: Same as Basic but across 9 chains for broader optimization
+- **Limits**: Unlimited
 
 ## Endpoints
 
 ### GET /gas/demo
-Free demo — raw gas prices only (no recommendations or savings). Rate limited: 10 calls/hr per IP.
+Free tier. Returns gas data for 4 chains without USDC cost estimates or recommendations. Rate limited.
 
 ### GET /gas/basic
-Paid endpoint — $0.001 USDC per call via x402 protocol. Returns 4-chain comparison with recommendations.
+Paid ($0.001 USDC via x402). Returns 4-chain gas comparison with USDC cost estimates, cheapest chain recommendation, and savings calculation.
 
 ### GET /gas/premium
-Premium endpoint — $0.002 USDC per call via x402 protocol. Returns 9-chain comparison with full features.
+Paid ($0.002 USDC via x402). Returns 9-chain gas comparison with full features.
 
 ### GET /llms.txt
-This file. AI-readable service description.
+This file.
 
 ### GET /health
 Server health check.
 
-## Payment Flow (x402 Protocol)
-1. GET /gas/basic or /gas/premium → receive 402 response with payment requirements
-2. Client signs EIP-712 USDC authorization (using x402-axios or x402-fetch)
-3. Resend request with X-PAYMENT header → facilitator verifies → data response → on-chain settlement
+## Payment (x402 Protocol)
+Payment is automated via the x402 protocol (HTTP 402 Payment Required). No manual transfers needed.
 
-No manual transfers needed. Fully automated with x402 client libraries.
+1. Send GET request to a paid endpoint
+2. Receive 402 response with payment requirements (price, network, payTo address)
+3. Client library signs an EIP-712 USDC authorization on Base
+4. Resend request with `X-PAYMENT` header
+5. Facilitator verifies payment → API returns data → USDC is settled on-chain
 
-## Client Integration
+### Client Libraries
 ```javascript
-// Using x402-axios (recommended)
-const { withPayment } = require("x402-axios");
+// Using @x402/axios
+const { withPayment } = require("@x402/axios");
 const client = withPayment(axios.create(), walletClient);
-const response = await client.get("https://api.mgo.chain-ops.xyz/gas/basic");
+const res = await client.get("https://api.mgo.chain-ops.xyz/gas/basic");
 ```
 
-## Response Example
+```javascript
+// Using @x402/fetch
+const { withPayment } = require("@x402/fetch");
+const paidFetch = withPayment(fetch, walletClient);
+const res = await paidFetch("https://api.mgo.chain-ops.xyz/gas/basic");
+```
+
+## Response Format
+
+### Basic/Premium Response
 ```json
 {
+  "success": true,
+  "timestamp": "2026-03-10T04:03:38.594Z",
+  "tier": "basic",
+  "totalLatencyMs": 581,
+  "tokenPrices": { "ETH": 2027.86 },
   "recommendation": {
     "cheapestChain": "Base",
-    "estimatedCostsUsdc": { "dexSwap": 0.001234 },
-    "savingsPercent": "99.8%"
+    "cheapestChainId": 8453,
+    "estimatedCostsUsdc": {
+      "nativeTransfer": 0.000256,
+      "erc20Transfer": 0.000791,
+      "dexSwap": 0.001826
+    },
+    "vsExpensive": {
+      "chain": "Ethereum",
+      "dexSwapUsdc": 9.148,
+      "savingsPercent": "99.8%"
+    },
+    "action": "Use Base — saves 99.8% vs Ethereum"
   },
   "chains": [
-    { "chain": "Ethereum", "gasPriceGwei": "12.3456" },
-    { "chain": "Base", "gasPriceGwei": "0.0100" },
-    { "chain": "Arbitrum", "gasPriceGwei": "0.0200" },
-    { "chain": "Optimism", "gasPriceGwei": "0.0150" }
-  ]
+    {
+      "chain": "Ethereum",
+      "chainId": 1,
+      "nativeToken": "ETH",
+      "tokenPriceUsd": 2027.86,
+      "gasPrice": {
+        "baseFeeWei": "30073918",
+        "priorityFeeWei": "15",
+        "totalFeeWei": "30073933",
+        "baseFeeGwei": "0.0301",
+        "priorityFeeGwei": "0.0000",
+        "totalFeeGwei": "0.0301"
+      },
+      "estimatedCosts": {
+        "nativeTransfer": { "native": "0.00000063", "usdc": 0.001278, "gasUnits": "21000", "label": "Simple native token transfer" },
+        "erc20Transfer": { "native": "0.00000195", "usdc": 0.003954, "gasUnits": "65000", "label": "ERC-20 token transfer" },
+        "dexSwap": { "native": "0.00000451", "usdc": 0.009146, "gasUnits": "150000", "label": "DEX swap (Uniswap-style)" }
+      },
+      "blockNumber": "24624564",
+      "explorer": "https://etherscan.io",
+      "latencyMs": 235,
+      "status": "ok"
+    },
+    {
+      "chain": "Base",
+      "chainId": 8453,
+      "nativeToken": "ETH",
+      "tokenPriceUsd": 2027.86,
+      "gasPrice": {
+        "baseFeeWei": "5003633",
+        "priorityFeeWei": "1000000",
+        "totalFeeWei": "6003633",
+        "baseFeeGwei": "0.0050",
+        "priorityFeeGwei": "0.0010",
+        "totalFeeGwei": "0.0060"
+      },
+      "estimatedCosts": {
+        "nativeTransfer": { "native": "0.00000013", "usdc": 0.000256, "gasUnits": "21000", "label": "Simple native token transfer" },
+        "erc20Transfer": { "native": "0.00000039", "usdc": 0.000791, "gasUnits": "65000", "label": "ERC-20 token transfer" },
+        "dexSwap": { "native": "0.00000090", "usdc": 0.001826, "gasUnits": "150000", "label": "DEX swap (Uniswap-style)" }
+      },
+      "blockNumber": "43163035",
+      "explorer": "https://basescan.org",
+      "latencyMs": 131,
+      "status": "ok"
+    }
+  ],
+  "meta": {
+    "provider": "MGO — Multi-chain Gas Optimizer",
+    "protocol": "x402",
+    "version": "2.0.0",
+    "tier": "basic",
+    "chainsQueried": 4,
+    "chainsSucceeded": 4,
+    "costUnit": "USDC",
+    "priceSource": "CoinGecko (1-min cache)",
+    "notes": [
+      "All estimated costs are in USDC for cross-chain comparison",
+      "Optimism costs include L1 data posting fee (Ecotone formula)",
+      "Gas prices shown in native gwei; USDC = native cost × token price"
+    ],
+    "pricing": {
+      "basic": "$0.001 USDC / 1 call — 4 chains (ETH, Base, Arbitrum, Optimism)",
+      "premium": "$0.002 USDC / 1 call — 9 chains (+ BNB, Polygon, Avalanche, zkSync, Hyperliquid)"
+    }
+  },
+  "upgrade_notice": "Upgrade to Premium ($0.002/call) to unlock BNB, Polygon, Avalanche, zkSync, Hyperliquid comparisons."
 }
 ```
 
-## MCP Integration
-MGO also runs as an MCP server for Claude Desktop and Cursor.
-Tool: `get_cheapest_gas` — returns the same multi-chain gas comparison.
+### Optimism L1 Data Fee (included in Optimism chain data)
+Optimism chains include an additional `l1DataFee` object showing the L1 data posting cost:
+```json
+{
+  "l1DataFee": {
+    "nativeTransferWei": "0",
+    "erc20TransferWei": "316151411",
+    "dexSwapWei": "1208814221",
+    "note": "L1 data posting fee (Ecotone formula) added to estimated costs"
+  }
+}
+```
+
+### Key Fields for Agent Decision-Making
+- `recommendation.cheapestChain` — which chain to use for the transaction
+- `recommendation.estimatedCostsUsdc.dexSwap` — cheapest DEX swap gas cost in USDC
+- `recommendation.vsExpensive.savingsPercent` — how much you save vs the most expensive chain
+- `recommendation.action` — human-readable instruction (e.g. "Use Base — saves 99.8% vs Ethereum")
+- `chains[].estimatedCosts` — per-chain cost breakdown for 3 transaction types:
+  - `nativeTransfer` — simple ETH/token send (21,000 gas)
+  - `erc20Transfer` — ERC-20 token transfer (65,000 gas)
+  - `dexSwap` — DEX swap like Uniswap (150,000 gas)
+- `chains[].estimatedCosts.*.usdc` — cost in USDC (only in Basic/Premium, not in Demo)
+- `chains[].status` — "ok" or "error" (check before using chain data)
+
+## Agent Workflow
+1. Call `GET /gas/basic` (or `/gas/premium` for 9 chains) with x402 payment
+2. Read `recommendation.cheapestChain` to determine the optimal chain
+3. Read `recommendation.estimatedCostsUsdc.dexSwap` to know the expected gas cost
+4. Compare with your transaction value to decide if the trade is profitable
+5. Execute your transaction on the recommended chain
+6. If `recommendation` is null or a chain has `status: "error"`, fall back to your default chain
 
 ## Use Cases
-- Trading agents optimizing execution costs
-- DeFi bots choosing cheapest chain for swaps
-- Multi-chain portfolio managers
-- Arbitrage agents comparing cross-chain costs
+- Trading agents choosing the cheapest chain before executing swaps
+- DeFi bots optimizing cross-chain transaction routing
+- Multi-chain portfolio managers minimizing rebalancing costs
+- Arbitrage agents comparing execution costs across chains
 
 ## Tags
-x402, gas, multi-chain, ethereum, base, arbitrum, optimism, bnb, polygon, avalanche, zksync, hyperliquid, defi, trading, agent
+x402, gas, multi-chain, ethereum, base, arbitrum, optimism, bnb, polygon, avalanche, zksync, hyperliquid, defi, trading, agent, gas-optimization
