@@ -1,0 +1,30 @@
+{
+  "version": "1",
+  "endpoints": [
+    {
+      "path": "/gas/basic",
+      "method": "GET",
+      "description": "4-chain gas comparison with cheapest recommendation + savings %",
+      "payment": {
+        "amount": "0.001",
+        "token": "USDC",
+        "network": "base"
+      }
+    },
+    {
+      "path": "/gas/premium",
+      "method": "GET",
+      "description": "9-chain full gas comparison",
+      "payment": {
+        "amount": "0.002",
+        "token": "USDC",
+        "network": "base"
+      }
+    }
+  ],
+  "provider": {
+    "name": "chain-ops MGO",
+    "url": "https://chain-ops.xyz",
+    "wallet": "0xEC3cAf9281a1b5371F76ee3A3eAb895fdECCe31e"
+  }
+}

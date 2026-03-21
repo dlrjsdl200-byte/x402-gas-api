@@ -1,0 +1,24 @@
+{
+  "name": "MGO Gas Optimizer",
+  "description": "An x402-native API service that compares real-time gas prices across up to 9 EVM chains and recommends the cheapest one. Built for trading agents, DeFi bots, and AI agents that need to optimize transaction costs.",
+  "url": "https://api.mgo.chain-ops.xyz",
+  "provider": {
+    "name": "chain-ops",
+    "url": "https://chain-ops.xyz"
+  },
+  "version": "1.0.0",
+  "capabilities": {
+    "payment": "x402",
+    "streaming": false,
+    "discovery": true
+  },
+  "skills": [
+    {
+      "id": "gas-comparison",
+      "name": "EVM Gas Price Comparison",
+      "description": "Compare gas prices across EVM chains and find the cheapest option",
+      "tags": ["gas", "evm", "optimization", "defi", "trading"]
+    }
+  ],
+  "tags": ["gas", "evm", "x402", "defi", "optimization", "multi-chain"]
+}

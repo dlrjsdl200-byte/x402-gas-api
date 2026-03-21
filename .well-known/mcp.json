@@ -1,0 +1,37 @@
+{
+  "name": "MGO — Multi-chain Gas Optimizer",
+  "description": "Real-time gas price comparison across up to 9 EVM chains. Returns cheapest chain recommendation with savings calculations. Pay-per-call via x402 on Base.",
+  "version": "1.0.0",
+  "url": "https://api.mgo.chain-ops.xyz",
+  "payment": {
+    "protocol": "x402",
+    "network": "base",
+    "token": "USDC",
+    "wallet": "0xEC3cAf9281a1b5371F76ee3A3eAb895fdECCe31e"
+  },
+  "tools": [
+    {
+      "name": "get_gas_demo",
+      "description": "Free gas prices for 4 chains (rate limited)",
+      "endpoint": "GET /gas/demo",
+      "price": "free"
+    },
+    {
+      "name": "get_gas_basic",
+      "description": "4-chain gas comparison with cheapest recommendation",
+      "endpoint": "GET /gas/basic",
+      "price": "$0.001 USDC"
+    },
+    {
+      "name": "get_gas_premium",
+      "description": "9-chain full gas comparison including BNB, Polygon, Avalanche, zkSync, Hyperliquid",
+      "endpoint": "GET /gas/premium",
+      "price": "$0.002 USDC"
+    }
+  ],
+  "links": {
+    "dashboard": "https://mgo.chain-ops.xyz",
+    "docs": "https://api.mgo.chain-ops.xyz/llms.txt",
+    "github": "https://github.com/dlrjsdl200-byte/x402-gas-api"
+  }
+}
