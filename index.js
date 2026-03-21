@@ -35,6 +35,31 @@ app.get("/llms.txt", (req, res) => {
   else res.type("text/plain").send("# MGO - Multi-chain Gas Optimizer\n");
 });
 
+// Agent discovery endpoints
+app.get("/skill.md", (req, res) => {
+  const skillPath = path.join(__dirname, "skill.md");
+  if (fs.existsSync(skillPath)) res.type("text/markdown").sendFile(skillPath);
+  else res.status(404).json({ error: "skill.md not found" });
+});
+
+app.get("/.well-known/mcp.json", (req, res) => {
+  const filePath = path.join(__dirname, ".well-known", "mcp.json");
+  if (fs.existsSync(filePath)) res.type("application/json").sendFile(filePath);
+  else res.status(404).json({ error: "not found" });
+});
+
+app.get("/.well-known/agent-card.json", (req, res) => {
+  const filePath = path.join(__dirname, ".well-known", "agent-card.json");
+  if (fs.existsSync(filePath)) res.type("application/json").sendFile(filePath);
+  else res.status(404).json({ error: "not found" });
+});
+
+app.get("/.well-known/x402.json", (req, res) => {
+  const filePath = path.join(__dirname, ".well-known", "x402.json");
+  if (fs.existsSync(filePath)) res.type("application/json").sendFile(filePath);
+  else res.status(404).json({ error: "not found" });
+});
+
 app.get("/health", (req, res) => {
   res.json({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() });
 });
@@ -200,9 +225,11 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`\nMGO Gas API running on http://localhost:${PORT}`);
-  console.log(`Demo:    http://localhost:${PORT}/gas/demo`);
-  console.log(`Basic:   http://localhost:${PORT}/gas/basic`);
-  console.log(`Premium: http://localhost:${PORT}/gas/premium`);
-  console.log(`llms:    http://localhost:${PORT}/llms.txt`);
-  console.log(`Health:  http://localhost:${PORT}/health\n`);
+  console.log(`Demo:      http://localhost:${PORT}/gas/demo`);
+  console.log(`Basic:     http://localhost:${PORT}/gas/basic`);
+  console.log(`Premium:   http://localhost:${PORT}/gas/premium`);
+  console.log(`llms:      http://localhost:${PORT}/llms.txt`);
+  console.log(`skill:     http://localhost:${PORT}/skill.md`);
+  console.log(`mcp.json:  http://localhost:${PORT}/.well-known/mcp.json`);
+  console.log(`Health:    http://localhost:${PORT}/health\n`);
 });
