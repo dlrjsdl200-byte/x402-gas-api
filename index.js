@@ -15,6 +15,101 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
 
+// Inlined discovery content (Vercel serverless fs-safe)
+const SKILL_MD = `# MGO — Multi-chain Gas Optimizer
+
+Use this skill when the agent needs to find the cheapest EVM chain for a transaction, compare gas prices across chains, or optimize transaction costs.
+
+## When to use
+- "Which chain is cheapest for gas right now?"
+- "Compare gas prices across EVM chains"
+- "I want to send a transaction — where should I do it?"
+- "Find the cheapest chain to deploy a contract"
+- "How much will this transaction cost on Base vs Ethereum?"
+
+## Base URL
+https://api.mgo.chain-ops.xyz
+
+## Endpoints
+
+All paid endpoints use x402 protocol on Base (USDC). No API key needed.
+
+### GET /gas/demo — Free
+Raw gas prices for 4 chains. Rate limited (10/hr per IP). Good for testing.
+
+### GET /gas/basic — $0.001 USDC
+4-chain gas comparison with cheapest chain recommendation and savings calculation.
+Chains: Ethereum, Base, Optimism, Arbitrum
+
+### GET /gas/premium — $0.002 USDC
+Full 9-chain comparison including BNB, Polygon, Avalanche, zkSync, Hyperliquid.
+
+## Response Structure
+
+\`\`\`json
+{
+  "cheapestChain": "Base",
+  "savingsPercent": "97.7%",
+  "recommendation": "Use Base — 97.7% cheaper than Ethereum",
+  "chains": [
+    {
+      "name": "Base",
+      "gasPriceGwei": 0.001,
+      "estimatedCostUSDC": 0.000021,
+      "rank": 1
+    }
+  ]
+}
+\`\`\`
+
+## Payment (x402)
+
+Protocol: x402
+Network: Base (eip155:8453)
+Token: USDC
+Wallet: ${WALLET_ADDRESS || "0xEC3cAf9281a1b5371F76ee3A3eAb895fdECCe31e"}
+
+## Links
+- API: https://api.mgo.chain-ops.xyz
+- Dashboard: https://mgo.chain-ops.xyz
+- llms.txt: https://api.mgo.chain-ops.xyz/llms.txt
+- GitHub: https://github.com/dlrjsdl200-byte/x402-gas-api
+`;
+
+const WELL_KNOWN_MCP = {
+  name: "MGO — Multi-chain Gas Optimizer",
+  description: "Real-time gas price comparison across up to 9 EVM chains. Returns cheapest chain recommendation with savings calculations. Pay-per-call via x402 on Base.",
+  version: "1.0.0",
+  url: "https://api.mgo.chain-ops.xyz",
+  payment: { protocol: "x402", network: "base", token: "USDC", wallet: "0xEC3cAf9281a1b5371F76ee3A3eAb895fdECCe31e" },
+  tools: [
+    { name: "get_gas_demo", description: "Free gas prices for 4 chains (rate limited)", endpoint: "GET /gas/demo", price: "free" },
+    { name: "get_gas_basic", description: "4-chain gas comparison with cheapest recommendation", endpoint: "GET /gas/basic", price: "$0.001 USDC" },
+    { name: "get_gas_premium", description: "9-chain full gas comparison including BNB, Polygon, Avalanche, zkSync, Hyperliquid", endpoint: "GET /gas/premium", price: "$0.002 USDC" }
+  ],
+  links: { dashboard: "https://mgo.chain-ops.xyz", docs: "https://api.mgo.chain-ops.xyz/llms.txt", github: "https://github.com/dlrjsdl200-byte/x402-gas-api" }
+};
+
+const WELL_KNOWN_AGENT_CARD = {
+  name: "MGO Gas Optimizer",
+  description: "An x402-native API service that compares real-time gas prices across up to 9 EVM chains and recommends the cheapest one. Built for trading agents, DeFi bots, and AI agents that need to optimize transaction costs.",
+  url: "https://api.mgo.chain-ops.xyz",
+  provider: { name: "chain-ops", url: "https://chain-ops.xyz" },
+  version: "1.0.0",
+  capabilities: { payment: "x402", streaming: false, discovery: true },
+  skills: [{ id: "gas-comparison", name: "EVM Gas Price Comparison", description: "Compare gas prices across EVM chains and find the cheapest option", tags: ["gas", "evm", "optimization", "defi", "trading"] }],
+  tags: ["gas", "evm", "x402", "defi", "optimization", "multi-chain"]
+};
+
+const WELL_KNOWN_X402 = {
+  version: "1",
+  endpoints: [
+    { path: "/gas/basic", method: "GET", description: "4-chain gas comparison with cheapest recommendation + savings %", payment: { amount: "0.001", token: "USDC", network: "base" } },
+    { path: "/gas/premium", method: "GET", description: "9-chain full gas comparison", payment: { amount: "0.002", token: "USDC", network: "base" } }
+  ],
+  provider: { name: "chain-ops MGO", url: "https://chain-ops.xyz", wallet: "0xEC3cAf9281a1b5371F76ee3A3eAb895fdECCe31e" }
+};
+
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -35,29 +130,21 @@ app.get("/llms.txt", (req, res) => {
   else res.type("text/plain").send("# MGO - Multi-chain Gas Optimizer\n");
 });
 
-// Agent discovery endpoints
+// Agent discovery endpoints (inlined for Vercel serverless)
 app.get("/skill.md", (req, res) => {
-  const skillPath = path.join(__dirname, "skill.md");
-  if (fs.existsSync(skillPath)) res.type("text/markdown").sendFile(skillPath);
-  else res.status(404).json({ error: "skill.md not found" });
+  res.type("text/markdown").send(SKILL_MD);
 });
 
 app.get("/.well-known/mcp.json", (req, res) => {
-  const filePath = path.join(__dirname, ".well-known", "mcp.json");
-  if (fs.existsSync(filePath)) res.type("application/json").sendFile(filePath);
-  else res.status(404).json({ error: "not found" });
+  res.json(WELL_KNOWN_MCP);
 });
 
 app.get("/.well-known/agent-card.json", (req, res) => {
-  const filePath = path.join(__dirname, ".well-known", "agent-card.json");
-  if (fs.existsSync(filePath)) res.type("application/json").sendFile(filePath);
-  else res.status(404).json({ error: "not found" });
+  res.json(WELL_KNOWN_AGENT_CARD);
 });
 
 app.get("/.well-known/x402.json", (req, res) => {
-  const filePath = path.join(__dirname, ".well-known", "x402.json");
-  if (fs.existsSync(filePath)) res.type("application/json").sendFile(filePath);
-  else res.status(404).json({ error: "not found" });
+  res.json(WELL_KNOWN_X402);
 });
 
 app.get("/health", (req, res) => {
@@ -225,11 +312,13 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`\nMGO Gas API running on http://localhost:${PORT}`);
-  console.log(`Demo:      http://localhost:${PORT}/gas/demo`);
-  console.log(`Basic:     http://localhost:${PORT}/gas/basic`);
-  console.log(`Premium:   http://localhost:${PORT}/gas/premium`);
-  console.log(`llms:      http://localhost:${PORT}/llms.txt`);
-  console.log(`skill:     http://localhost:${PORT}/skill.md`);
-  console.log(`mcp.json:  http://localhost:${PORT}/.well-known/mcp.json`);
-  console.log(`Health:    http://localhost:${PORT}/health\n`);
+  console.log(`Demo:            http://localhost:${PORT}/gas/demo`);
+  console.log(`Basic:           http://localhost:${PORT}/gas/basic`);
+  console.log(`Premium:         http://localhost:${PORT}/gas/premium`);
+  console.log(`llms.txt:        http://localhost:${PORT}/llms.txt`);
+  console.log(`skill.md:        http://localhost:${PORT}/skill.md`);
+  console.log(`mcp.json:        http://localhost:${PORT}/.well-known/mcp.json`);
+  console.log(`agent-card.json: http://localhost:${PORT}/.well-known/agent-card.json`);
+  console.log(`x402.json:       http://localhost:${PORT}/.well-known/x402.json`);
+  console.log(`Health:          http://localhost:${PORT}/health\n`);
 });
