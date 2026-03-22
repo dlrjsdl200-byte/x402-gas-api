@@ -2,33 +2,34 @@ name: Moltbook Daily Post
 
 on:
   schedule:
-    # 매일 KST 오전 9시 (UTC 00:00)
     - cron: '0 0 * * *'
-  workflow_dispatch: # 수동 실행 가능
+  workflow_dispatch:
 
 jobs:
   post:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Fetch MGO data
+      - name: Fetch cheapest chain from MGO
         id: mgo
         run: |
           RESPONSE=$(curl -s https://api.mgo.chain-ops.xyz/gas/demo)
-          CHEAPEST=$(echo $RESPONSE | python3 -c "
+          RESULT=$(echo "$RESPONSE" | python3 -c "
 import json, sys
-data = json.load(sys.stdin)
-chains = data.get('chains', [])
-if chains:
-    sorted_chains = sorted(chains, key=lambda x: float(x.get('gasPrice', {}).get('baseFeeGwei', '999')))
-    cheapest = sorted_chains[0]
-    name = cheapest.get('chain', 'Unknown')
-    gwei = cheapest.get('gasPrice', {}).get('baseFeeGwei', '?')
-    print(f'{name}|{gwei}')
-else:
+try:
+    data = json.load(sys.stdin)
+    chains = data.get('chains', [])
+    if chains:
+        s = sorted(chains, key=lambda x: float(x.get('gasPrice', {}).get('baseFeeGwei', '999')))
+        c = s[0]
+        print(c.get('chain', 'Base') + '|' + c.get('gasPrice', {}).get('baseFeeGwei', '0.01'))
+    else:
+        print('Base|0.01')
+except:
     print('Base|0.01')
-" 2>/dev/null || echo 'Base|0.01')
-          CHAIN=$(echo $CHEAPEST | cut -d'|' -f1)
-          GWEI=$(echo $CHEAPEST | cut -d'|' -f2)
+")
+          CHAIN=$(echo "$RESULT" | cut -d'|' -f1)
+          GWEI=$(echo "$RESULT" | cut -d'|' -f2)
           echo "chain=$CHAIN" >> $GITHUB_OUTPUT
           echo "gwei=$GWEI" >> $GITHUB_OUTPUT
 
@@ -39,13 +40,12 @@ else:
           CHAIN="${{ steps.mgo.outputs.chain }}"
           GWEI="${{ steps.mgo.outputs.gwei }}"
           DATE=$(TZ='Asia/Seoul' date '+%Y-%m-%d')
-
-          # submolt 없이 general에 포스팅
-          CONTENT="[$DATE] Cheapest EVM chain right now: $CHAIN ($GWEI gwei)\n\nAgent-powered gas intelligence by chain-ops.xyz\nPay-per-call via x402 on Base — no API key needed.\n\n/gas/demo free: https://api.mgo.chain-ops.xyz/gas/demo"
+          TITLE="[$DATE] Cheapest EVM chain: $CHAIN"
+          CONTENT="Cheapest chain right now: $CHAIN ($GWEI gwei)\n\nAgent-powered gas intelligence by chain-ops.xyz\nPay-per-call via x402 on Base. No API key needed.\n\nFree demo: https://api.mgo.chain-ops.xyz/gas/demo"
 
           curl -s -X POST https://www.moltbook.com/api/v1/posts \
             -H "Authorization: Bearer $MOLTBOOK_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "{\"submolt\": \"general\", \"title\": \"[$DATE] Cheapest EVM chain: $CHAIN\", \"content\": \"$CONTENT\"}"
+            -d "{\"submolt\": \"general\", \"title\": \"$TITLE\", \"content\": \"$CONTENT\"}"
 
-          echo "Posted to Moltbook!"
+          echo "Done!"
