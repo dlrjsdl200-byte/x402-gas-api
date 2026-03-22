@@ -13,7 +13,6 @@ const path = require("path");
 const app = express();
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
 
-// Inlined discovery content (Vercel serverless fs-safe)
 const SKILL_MD = `# MGO — Multi-chain Gas Optimizer
 
 Use this skill when the agent needs to find the cheapest EVM chain for a transaction, compare gas prices across chains, or optimize transaction costs.
@@ -58,7 +57,7 @@ const WELL_KNOWN_MCP = {
   description: "Real-time gas price comparison across up to 9 EVM chains. Returns cheapest chain recommendation with savings calculations. Pay-per-call via x402 on Base.",
   version: "1.0.0",
   url: "https://api.mgo.chain-ops.xyz",
-  payment: { protocol: "x402", network: "base", token: "USDC", wallet: "0xEC3cAf9281a1b5371F76ee3A3eAb895fdECCe31e" },
+  payment: { protocol: "x402", network: "base", token: "USDC", wallet: "0x665bab4c46a6ae3f755e71793e5685bc6c47dd7a" },
   tools: [
     { name: "get_gas_demo", description: "Free gas prices for 4 chains (rate limited)", endpoint: "GET /gas/demo", price: "free" },
     { name: "get_gas_basic", description: "4-chain gas comparison with cheapest recommendation", endpoint: "GET /gas/basic", price: "$0.001 USDC" },
@@ -78,13 +77,24 @@ const WELL_KNOWN_AGENT_CARD = {
   tags: ["gas", "evm", "x402", "defi", "optimization", "multi-chain"]
 };
 
-const WELL_KNOWN_X402 = {
+// x402scan discovery spec 형식 (/.well-known/x402 - 확장자 없이)
+const WELL_KNOWN_X402_DISCOVERY = {
+  version: 1,
+  resources: [
+    "https://api.mgo.chain-ops.xyz/gas/basic",
+    "https://api.mgo.chain-ops.xyz/gas/premium"
+  ],
+  ownershipProofs: ["0x665bab4c46a6ae3f755e71793e5685bc6c47dd7a"]
+};
+
+// 기존 호환용 (/.well-known/x402.json)
+const WELL_KNOWN_X402_LEGACY = {
   version: "1",
   endpoints: [
     { path: "/gas/basic", method: "GET", description: "4-chain gas comparison with cheapest recommendation + savings %", payment: { amount: "0.001", token: "USDC", network: "base" } },
     { path: "/gas/premium", method: "GET", description: "9-chain full gas comparison", payment: { amount: "0.002", token: "USDC", network: "base" } }
   ],
-  provider: { name: "chain-ops MGO", url: "https://chain-ops.xyz", wallet: "0xEC3cAf9281a1b5371F76ee3A3eAb895fdECCe31e" }
+  provider: { name: "chain-ops MGO", url: "https://chain-ops.xyz", wallet: "0x665bab4c46a6ae3f755e71793e5685bc6c47dd7a" }
 };
 
 app.use((req, res, next) => {
@@ -112,9 +122,10 @@ app.get("/", (req, res) => {
       "/gas/demo": "Free demo (raw gas prices, 10/hr limit)",
       "/llms.txt": "AI discovery file",
       "/skill.md": "OpenClaw skill file",
+      "/.well-known/x402": "x402scan discovery (resources array)",
+      "/.well-known/x402.json": "x402 discovery (legacy)",
       "/.well-known/mcp.json": "MCP discovery",
       "/.well-known/agent-card.json": "A2A agent card",
-      "/.well-known/x402.json": "x402 discovery",
       "/health": "Server health check",
     },
     payment: {
@@ -131,7 +142,6 @@ app.get("/llms.txt", (req, res) => {
   else res.type("text/plain").send("# MGO - Multi-chain Gas Optimizer\n");
 });
 
-// Agent discovery endpoints (inlined for Vercel serverless)
 app.get("/skill.md", (req, res) => {
   res.type("text/markdown").send(SKILL_MD);
 });
@@ -144,18 +154,22 @@ app.get("/.well-known/agent-card.json", (req, res) => {
   res.json(WELL_KNOWN_AGENT_CARD);
 });
 
+// x402scan spec: /.well-known/x402 (확장자 없이, resources 배열 형식)
+app.get("/.well-known/x402", (req, res) => {
+  res.json(WELL_KNOWN_X402_DISCOVERY);
+});
+
+// 기존 호환
 app.get("/.well-known/x402.json", (req, res) => {
-  res.json(WELL_KNOWN_X402);
+  res.json(WELL_KNOWN_X402_LEGACY);
 });
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString(), version: "2.1.0" });
 });
 
-// Demo: free, rate-limited, raw gas data only
 app.use("/gas/demo", demoRateLimit, demoSessionMiddleware, gasRouter);
 
-// Paid tiers
 if (WALLET_ADDRESS) {
   const facilitatorClient = new HTTPFacilitatorClient(
     createCdpFacilitatorConfig(process.env.CDP_API_KEY_ID, process.env.CDP_API_KEY_SECRET)
@@ -220,7 +234,6 @@ if (WALLET_ADDRESS) {
     chains: [...basicExample.chains, chainExample("BNB Chain", "1.0000", 0.05), chainExample("Polygon", "30.0000", 0.003), chainExample("Avalanche", "25.0000", 0.12), chainExample("zkSync Era", "0.0250", 0.002), chainExample("Hyperliquid", "0.5000", 0.01)],
   };
 
-  // discoverable: true → CDP Bazaar 자동 등재 + x402scan 수집 + x402search.xyz 인덱싱
   app.use("/gas/basic",
     paymentMiddleware({
       "GET /": {
