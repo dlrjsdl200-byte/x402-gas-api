@@ -17,61 +17,86 @@ jobs:
           DAY=$(TZ='Asia/Seoul' date '+%A')
           RAW=$(curl -s https://api.mgo.chain-ops.xyz/gas/demo)
 
-          RESULT=$(echo "$RAW" | python3 -c "
-import json,sys
+          # Parse gas data into env vars via temp file
+          echo "$RAW" | python3 -c "
+import json, sys
 try:
-    d=json.load(sys.stdin)
-    chains=d.get('chains',[])
-    if not chains: print('Base|0.01|Ethereum|99.8|0.001|0.50|Base,Optimism,Arbitrum'); sys.exit()
-    s=sorted(chains,key=lambda x:float(x.get('gasPrice',{}).get('baseFeeGwei','999')))
-    cheap=s[0]; exp=s[-1]
-    cn=cheap.get('chain','Base')
-    cg=cheap.get('gasPrice',{}).get('baseFeeGwei','?')
-    en=exp.get('chain','Ethereum')
-    cc=cheap.get('estimatedCosts',{}).get('dexSwap',{}).get('usdc',0.001)
-    ec=exp.get('estimatedCosts',{}).get('dexSwap',{}).get('usdc',0.5)
-    pct=round((1-float(cc)/float(ec))*100,1) if float(ec)>0 else 99.8
-    top3=','.join([c.get('chain','?') for c in s[:3]])
-    print(f'{cn}|{cg}|{en}|{pct}|{cc}|{ec}|{top3}')
+    d = json.load(sys.stdin)
+    chains = d.get('chains', [])
+    if not chains:
+        print('C_CHAIN=Base'); print('C_GWEI=0.01'); print('E_CHAIN=Ethereum')
+        print('SAVINGS=99.8'); print('C_COST=0.001'); print('E_COST=0.50'); print('TOP3=Base,Optimism,Arbitrum')
+        sys.exit()
+    s = sorted(chains, key=lambda x: float(x.get('gasPrice',{}).get('baseFeeGwei','999')))
+    cheap = s[0]; exp = s[-1]
+    cn = cheap.get('chain','Base')
+    cg = cheap.get('gasPrice',{}).get('baseFeeGwei','?')
+    en = exp.get('chain','Ethereum')
+    cc = cheap.get('estimatedCosts',{}).get('dexSwap',{}).get('usdc', 0.001)
+    ec = exp.get('estimatedCosts',{}).get('dexSwap',{}).get('usdc', 0.5)
+    pct = round((1 - float(cc)/float(ec)) * 100, 1) if float(ec) > 0 else 99.8
+    top3 = ','.join([c.get('chain','?') for c in s[:3]])
+    print(f'C_CHAIN={cn}'); print(f'C_GWEI={cg}'); print(f'E_CHAIN={en}')
+    print(f'SAVINGS={pct}'); print(f'C_COST={cc}'); print(f'E_COST={ec}'); print(f'TOP3={top3}')
 except:
-    print('Base|0.01|Ethereum|99.8|0.001|0.50|Base,Optimism,Arbitrum')
-" 2>/dev/null || echo 'Base|0.01|Ethereum|99.8|0.001|0.50|Base,Optimism,Arbitrum')
+    print('C_CHAIN=Base'); print('C_GWEI=0.01'); print('E_CHAIN=Ethereum')
+    print('SAVINGS=99.8'); print('C_COST=0.001'); print('E_COST=0.50'); print('TOP3=Base,Optimism,Arbitrum')
+" 2>/dev/null > /tmp/gas_vars.sh || echo "C_CHAIN=Base
+C_GWEI=0.01
+E_CHAIN=Ethereum
+SAVINGS=99.8
+C_COST=0.001
+E_COST=0.50
+TOP3=Base,Optimism,Arbitrum" > /tmp/gas_vars.sh
 
-          C_CHAIN=$(echo "$RESULT" | cut -d'|' -f1)
-          C_GWEI=$(echo "$RESULT"  | cut -d'|' -f2)
-          E_CHAIN=$(echo "$RESULT" | cut -d'|' -f3)
-          SAVINGS=$(echo "$RESULT" | cut -d'|' -f4)
-          C_COST=$(echo "$RESULT"  | cut -d'|' -f5)
-          E_COST=$(echo "$RESULT"  | cut -d'|' -f6)
-          TOP3=$(echo "$RESULT"    | cut -d'|' -f7)
+          source /tmp/gas_vars.sh
 
-          TITLE="[$DATE] EVM Gas: $C_CHAIN cheapest at ${C_GWEI} gwei"
+          TITLE="[$DATE] EVM Gas: $C_CHAIN cheapest at $C_GWEI gwei"
+          CONTENT="$DAY gas intelligence report
 
-          # Build JSON payload with python to avoid multiline/escape issues
-          PAYLOAD=$(python3 -c "
-import json
-title = '$TITLE'
-content = '$DAY gas intelligence report\n\nCheapest chain : $C_CHAIN (${C_GWEI} gwei)\nDEX swap cost  : \$$C_COST USDC\n\nMost expensive : $E_CHAIN\nDEX swap cost  : \$$E_COST USDC\n\nSavings        : ${SAVINGS}%\n\nTop 3 cheapest : $TOP3\n\nAgent-generated report.'
-print(json.dumps({'submolt': 'SUBMOLT', 'title': title, 'content': content}))
-")
+Cheapest chain : $C_CHAIN ($C_GWEI gwei)
+DEX swap cost  : \$$C_COST USDC
+
+Most expensive : $E_CHAIN
+DEX swap cost  : \$$E_COST USDC
+
+Savings        : $SAVINGS%
+
+Top 3 cheapest : $TOP3
+
+Agent-generated report."
+
+          # Build JSON safely with python
+          POST_JSON=$(python3 -c "
+import json, sys
+title = sys.argv[1]
+content = sys.argv[2]
+submolt = sys.argv[3]
+print(json.dumps({'submolt': submolt, 'title': title, 'content': content}))
+" "$TITLE" "$CONTENT" "evm-gas")
 
           # 1. Post to m/evm-gas
-          EVM_PAYLOAD=$(echo "$PAYLOAD" | sed 's/"SUBMOLT"/"evm-gas"/')
           EVM_RESP=$(curl -s -X POST https://www.moltbook.com/api/v1/posts \
             -H "Authorization: Bearer $MOLTBOOK_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "$EVM_PAYLOAD")
-          echo "evm-gas: $(echo $EVM_RESP | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("message","?"))' 2>/dev/null)"
+            -d "$POST_JSON")
+          echo "evm-gas: $(echo "$EVM_RESP" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("message","?"))' 2>/dev/null)"
 
           sleep 5
 
           # 2. Post to general
-          GEN_PAYLOAD=$(echo "$PAYLOAD" | sed 's/"SUBMOLT"/"general"/')
+          GEN_JSON=$(python3 -c "
+import json, sys
+title = sys.argv[1]
+content = sys.argv[2]
+print(json.dumps({'submolt': 'general', 'title': title, 'content': content}))
+" "$TITLE" "$CONTENT")
+
           GEN_RESP=$(curl -s -X POST https://www.moltbook.com/api/v1/posts \
             -H "Authorization: Bearer $MOLTBOOK_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "$GEN_PAYLOAD")
-          echo "general: $(echo $GEN_RESP | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("message","?"))' 2>/dev/null)"
+            -d "$GEN_JSON")
+          echo "general: $(echo "$GEN_RESP" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("message","?"))' 2>/dev/null)"
 
           sleep 10
 
@@ -80,27 +105,26 @@ print(json.dumps({'submolt': 'SUBMOLT', 'title': title, 'content': content}))
             -H "Authorization: Bearer $MOLTBOOK_API_KEY")
 
           TARGET=$(echo "$FEED" | python3 -c "
-import json,sys
+import json, sys
 try:
-    d=json.load(sys.stdin)
-    kw=['gas','evm','chain','defi','base','ethereum','fee','gwei','l2','rollup']
-    for p in d.get('posts',[]):
-        t=(p.get('title','')+' '+p.get('content','')).lower()
+    kw = ['gas','evm','chain','defi','base','ethereum','fee','gwei','l2','rollup']
+    for p in json.load(sys.stdin).get('posts', []):
+        t = (p.get('title','') + ' ' + p.get('content','')).lower()
         if any(k in t for k in kw):
-            pid=p.get('id','')
-            if pid: print(pid); break
+            pid = p.get('id','')
+            if pid:
+                print(pid)
+                break
 except: pass
 " 2>/dev/null)
 
           if [ -n "$TARGET" ]; then
-            COMMENT_PAYLOAD=$(python3 -c "
-import json
-print(json.dumps({'content': '$C_CHAIN is cheapest EVM chain now at ${C_GWEI} gwei. DEX swap costs \$$C_COST USDC vs \$$E_COST on $E_CHAIN (${SAVINGS}% savings).'}))
-")
+            COMMENT_TEXT="$C_CHAIN is cheapest EVM chain now at $C_GWEI gwei. DEX swap costs \$$C_COST USDC vs \$$E_COST on $E_CHAIN ($SAVINGS% savings)."
+            COMMENT_JSON=$(python3 -c "import json,sys; print(json.dumps({'content': sys.argv[1]}))" "$COMMENT_TEXT")
             curl -s -X POST "https://www.moltbook.com/api/v1/posts/$TARGET/comments" \
               -H "Authorization: Bearer $MOLTBOOK_API_KEY" \
               -H "Content-Type: application/json" \
-              -d "$COMMENT_PAYLOAD" > /dev/null
+              -d "$COMMENT_JSON" > /dev/null
             echo "Commented on $TARGET"
           fi
 
@@ -109,10 +133,10 @@ print(json.dumps({'content': '$C_CHAIN is cheapest EVM chain now at ${C_GWEI} gw
           HOT=$(curl -s "https://www.moltbook.com/api/v1/posts?submolt=general&sort=hot&limit=5" \
             -H "Authorization: Bearer $MOLTBOOK_API_KEY")
           UPVOTE_ID=$(echo "$HOT" | python3 -c "
-import json,sys
+import json, sys
 try:
-    posts=json.load(sys.stdin).get('posts',[])
-    if posts: print(posts[0].get('id',''))
+    posts = json.load(sys.stdin).get('posts', [])
+    if posts: print(posts[0].get('id', ''))
 except: pass
 " 2>/dev/null)
 
