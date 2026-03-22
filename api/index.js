@@ -220,13 +220,28 @@ if (WALLET_ADDRESS) {
     chains: [...basicExample.chains, chainExample("BNB Chain", "1.0000", 0.05), chainExample("Polygon", "30.0000", 0.003), chainExample("Avalanche", "25.0000", 0.12), chainExample("zkSync Era", "0.0250", 0.002), chainExample("Hyperliquid", "0.5000", 0.01)],
   };
 
+  // discoverable: true → CDP Bazaar 자동 등재 + x402scan 수집 + x402search.xyz 인덱싱
   app.use("/gas/basic",
-    paymentMiddleware({ "GET /": { accepts: { scheme: "exact", price: "$0.001", network: "eip155:8453", payTo: WALLET_ADDRESS }, description: "MGO Basic — 4-chain gas comparison with recommendations", extensions: { ...declareDiscoveryExtension({ output: { example: basicExample, schema: outputSchema } }) } } }, server),
+    paymentMiddleware({
+      "GET /": {
+        accepts: { scheme: "exact", price: "$0.001", network: "eip155:8453", payTo: WALLET_ADDRESS },
+        description: "MGO Basic — 4-chain gas comparison with recommendations",
+        discoverable: true,
+        extensions: { ...declareDiscoveryExtension({ output: { example: basicExample, schema: outputSchema } }) }
+      }
+    }, server),
     paidSessionMiddleware("basic"), gasRouter
   );
 
   app.use("/gas/premium",
-    paymentMiddleware({ "GET /": { accepts: { scheme: "exact", price: "$0.002", network: "eip155:8453", payTo: WALLET_ADDRESS }, description: "MGO Premium — 9-chain gas comparison with full features", extensions: { ...declareDiscoveryExtension({ output: { example: premiumExample, schema: { ...outputSchema } } }) } } }, server),
+    paymentMiddleware({
+      "GET /": {
+        accepts: { scheme: "exact", price: "$0.002", network: "eip155:8453", payTo: WALLET_ADDRESS },
+        description: "MGO Premium — 9-chain gas comparison with full features",
+        discoverable: true,
+        extensions: { ...declareDiscoveryExtension({ output: { example: premiumExample, schema: { ...outputSchema } } }) }
+      }
+    }, server),
     paidSessionMiddleware("premium"), gasRouter
   );
 } else {
