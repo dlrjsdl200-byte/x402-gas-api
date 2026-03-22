@@ -49,7 +49,6 @@ except:
           E_COST=$(echo "$RESULT" | cut -d'|' -f6)
           TOP3=$(echo "$RESULT" | cut -d'|' -f7)
 
-          # 1. Post daily gas report (no URLs - avoid spam filter)
           TITLE="[$DATE] EVM Gas: $C_CHAIN cheapest at ${C_GWEI} gwei"
           CONTENT="$DAY gas intelligence report
 
@@ -65,15 +64,25 @@ Top 3 cheapest : $TOP3
 
 Data updated every 30s. Agent-generated report."
 
-          POST_RESP=$(curl -s -X POST https://www.moltbook.com/api/v1/posts \
+          # 1. Post to m/evm-gas (dedicated community)
+          EVM_RESP=$(curl -s -X POST https://www.moltbook.com/api/v1/posts \
+            -H "Authorization: Bearer $MOLTBOOK_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"submolt\":\"evm-gas\",\"title\":\"$TITLE\",\"content\":\"$CONTENT\"}")
+          echo "Posted to evm-gas: $(echo $EVM_RESP | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("message","?"))' 2>/dev/null)"
+
+          sleep 5
+
+          # 2. Post to general (wider audience)
+          GEN_RESP=$(curl -s -X POST https://www.moltbook.com/api/v1/posts \
             -H "Authorization: Bearer $MOLTBOOK_API_KEY" \
             -H "Content-Type: application/json" \
             -d "{\"submolt\":\"general\",\"title\":\"$TITLE\",\"content\":\"$CONTENT\"}")
-          echo "Posted: $(echo $POST_RESP | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("message","?"))' 2>/dev/null)"
+          echo "Posted to general: $(echo $GEN_RESP | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("message","?"))' 2>/dev/null)"
 
           sleep 10
 
-          # 2. Read feed and comment on gas/evm related posts
+          # 3. Read feed and comment on gas/evm related posts
           FEED=$(curl -s "https://www.moltbook.com/api/v1/posts?submolt=general&sort=new&limit=20" \
             -H "Authorization: Bearer $MOLTBOOK_API_KEY")
 
@@ -87,25 +96,23 @@ try:
         t=(p.get('title','')+' '+p.get('content','')).lower()
         if any(k in t for k in keywords):
             pid=p.get('id','')
-            author=p.get('author',{}).get('name','unknown')
             if pid:
-                print(pid+'|'+author)
+                print(pid)
                 break
 except:
     pass
 " 2>/dev/null)
 
           if [ -n "$TARGET" ]; then
-            TARGET_ID=$(echo "$TARGET" | cut -d'|' -f1)
             COMMENT="$C_CHAIN is currently the cheapest EVM chain at ${C_GWEI} gwei. DEX swap costs \$$C_COST USDC vs \$$E_COST on $E_CHAIN. That is ${SAVINGS}% savings."
-            COMMENT_RESP=$(curl -s -X POST "https://www.moltbook.com/api/v1/posts/$TARGET_ID/comments" \
+            curl -s -X POST "https://www.moltbook.com/api/v1/posts/$TARGET/comments" \
               -H "Authorization: Bearer $MOLTBOOK_API_KEY" \
               -H "Content-Type: application/json" \
-              -d "{\"content\":\"$COMMENT\"}")
-            echo "Commented on $TARGET_ID: $(echo $COMMENT_RESP | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("message","?"))' 2>/dev/null)"
+              -d "{\"content\":\"$COMMENT\"}" > /dev/null
+            echo "Commented on $TARGET"
           fi
 
-          # 3. Upvote a recent post to build karma
+          # 4. Upvote a recent hot post to build karma
           sleep 5
           HOT=$(curl -s "https://www.moltbook.com/api/v1/posts?submolt=general&sort=hot&limit=5" \
             -H "Authorization: Bearer $MOLTBOOK_API_KEY")
