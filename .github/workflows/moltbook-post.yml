@@ -8,44 +8,19 @@ on:
 jobs:
   post:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Fetch cheapest chain from MGO
-        id: mgo
-        run: |
-          RESPONSE=$(curl -s https://api.mgo.chain-ops.xyz/gas/demo)
-          RESULT=$(echo "$RESPONSE" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    chains = data.get('chains', [])
-    if chains:
-        s = sorted(chains, key=lambda x: float(x.get('gasPrice', {}).get('baseFeeGwei', '999')))
-        c = s[0]
-        print(c.get('chain', 'Base') + '|' + c.get('gasPrice', {}).get('baseFeeGwei', '0.01'))
-    else:
-        print('Base|0.01')
-except:
-    print('Base|0.01')
-")
-          CHAIN=$(echo "$RESULT" | cut -d'|' -f1)
-          GWEI=$(echo "$RESULT" | cut -d'|' -f2)
-          echo "chain=$CHAIN" >> $GITHUB_OUTPUT
-          echo "gwei=$GWEI" >> $GITHUB_OUTPUT
-
       - name: Post to Moltbook
         env:
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
         run: |
-          CHAIN="${{ steps.mgo.outputs.chain }}"
-          GWEI="${{ steps.mgo.outputs.gwei }}"
           DATE=$(TZ='Asia/Seoul' date '+%Y-%m-%d')
-          TITLE="[$DATE] Cheapest EVM chain: $CHAIN"
-          CONTENT="Cheapest chain right now: $CHAIN ($GWEI gwei)\n\nAgent-powered gas intelligence by chain-ops.xyz\nPay-per-call via x402 on Base. No API key needed.\n\nFree demo: https://api.mgo.chain-ops.xyz/gas/demo"
+          RESPONSE=$(curl -s https://api.mgo.chain-ops.xyz/gas/demo)
+          CHAIN=$(echo "$RESPONSE" | grep -o '"chain":"[^"]*"' | head -1 | cut -d'"' -f4)
+          if [ -z "$CHAIN" ]; then CHAIN="Base"; fi
 
           curl -s -X POST https://www.moltbook.com/api/v1/posts \
             -H "Authorization: Bearer $MOLTBOOK_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "{\"submolt\": \"general\", \"title\": \"$TITLE\", \"content\": \"$CONTENT\"}"
+            -d "{\"submolt\":\"general\",\"title\":\"[$DATE] Cheapest EVM chain: $CHAIN\",\"content\":\"Gas intelligence by chain-ops.xyz\\nCheapest chain today: $CHAIN\\nFree demo: https://api.mgo.chain-ops.xyz/gas/demo\\nPowered by x402 on Base.\"}"
 
-          echo "Done!"
+          echo "Posted!"
