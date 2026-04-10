@@ -2,7 +2,8 @@ name: Moltbook Daily Post
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    # Weekdays only at 09:00 KST (00:00 UTC)
+    - cron: '0 0 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -15,8 +16,6 @@ jobs:
       - name: Run Moltbook post script
         env:
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
-          POST_DATE: ${{ '' }}
-          POST_DAY: ${{ '' }}
         run: |
           export POST_DATE=$(TZ='Asia/Seoul' date '+%Y-%m-%d')
           export POST_DAY=$(TZ='Asia/Seoul' date '+%A')

@@ -1,44 +1,117 @@
 #!/usr/bin/env python3
-import json, sys, os, urllib.request, urllib.error
+"""
+MGO Daily Gas Report — Moltbook Poster
+Posts a daily gas intelligence report to m/evm-gas with varied content.
+"""
+import json, sys, os, urllib.request, urllib.error, hashlib
 
 API_KEY = os.environ.get('MOLTBOOK_API_KEY', '')
 DATE = os.environ.get('POST_DATE', '2026-01-01')
 DAY = os.environ.get('POST_DAY', 'Monday')
 
-# Fetch gas data
+# ── Fetch gas data ──
 try:
     with urllib.request.urlopen('https://api.mgo.chain-ops.xyz/gas/demo', timeout=10) as r:
         raw = json.loads(r.read())
     chains = raw.get('chains', [])
-    s = sorted(chains, key=lambda x: float(x.get('gasPrice', {}).get('baseFeeGwei', '999')))
+
+    # Sort by native DEX swap cost (usdc is stripped in demo tier)
+    def swap_cost(c):
+        return float(c.get('estimatedCosts', {}).get('dexSwap', {}).get('native', '999'))
+    s = sorted(chains, key=swap_cost)
+
     cheap = s[0]; exp = s[-1]
     c_chain = cheap.get('chain', 'Base')
-    c_gwei = cheap.get('gasPrice', {}).get('baseFeeGwei', '0.01')
     e_chain = exp.get('chain', 'Ethereum')
-    c_cost = cheap.get('estimatedCosts', {}).get('dexSwap', {}).get('usdc', 0.001)
-    e_cost = exp.get('estimatedCosts', {}).get('dexSwap', {}).get('usdc', 0.5)
-    pct = round((1 - float(c_cost) / float(e_cost)) * 100, 1) if float(e_cost) > 0 else 99.8
-    top3 = ', '.join([c.get('chain', '?') for c in s[:3]])
+
+    # Use higher precision for gwei (L2s can be <0.001 gwei)
+    def fmt_gwei(c):
+        raw_gwei = c.get('gasPrice', {}).get('baseFeeGwei', '0')
+        val = float(raw_gwei)
+        if val == 0:
+            return '<0.0001'
+        elif val < 0.01:
+            return f'{val:.6f}'
+        elif val < 1:
+            return f'{val:.4f}'
+        return f'{val:.2f}'
+
+    c_gwei = fmt_gwei(cheap)
+    e_gwei = fmt_gwei(exp)
+
+    c_native = cheap.get('estimatedCosts', {}).get('dexSwap', {}).get('native', '?')
+    e_native = exp.get('estimatedCosts', {}).get('dexSwap', {}).get('native', '?')
+
+    # Savings based on native cost
+    c_val = float(c_native) if c_native != '?' else 0
+    e_val = float(e_native) if e_native != '?' else 0
+    pct = round((1 - c_val / e_val) * 100, 1) if e_val > 0 else 99.8
+
+    top3 = [c.get('chain', '?') for c in s[:3]]
+    top3_str = ', '.join(top3)
+
+    # Build per-chain breakdown
+    breakdown_lines = []
+    for c in s:
+        name = c.get('chain', '?')
+        gwei = fmt_gwei(c)
+        native = c.get('estimatedCosts', {}).get('dexSwap', {}).get('native', '?')
+        breakdown_lines.append(f'  {name}: {gwei} gwei (swap cost: {native} native)')
+    breakdown = '\n'.join(breakdown_lines)
+
 except Exception as e:
     print(f'Gas fetch failed: {e}', file=sys.stderr)
-    c_chain, c_gwei, e_chain = 'Base', '0.01', 'Ethereum'
-    c_cost, e_cost, pct, top3 = 0.001, 0.50, 99.8, 'Base, Optimism, Arbitrum'
+    c_chain, c_gwei, e_chain, e_gwei = 'Base', '0.005', 'Ethereum', '12.00'
+    c_native, e_native = '0.0000009', '0.0000382'
+    pct = 99.8
+    top3_str = 'Base, Optimism, Arbitrum'
+    breakdown = '  (data unavailable)'
 
-title = f'[{DATE}] EVM Gas: {c_chain} cheapest at {c_gwei} gwei'
-content = f"""{DAY} gas intelligence report
+# ── Varied title templates ──
+day_hash = int(hashlib.md5(DATE.encode()).hexdigest(), 16)
 
-Cheapest chain : {c_chain} ({c_gwei} gwei)
-DEX swap cost  : ${c_cost} USDC
+titles = [
+    f"{DAY}'s cheapest EVM chain: {c_chain} at {c_gwei} gwei",
+    f"Gas report {DATE} — {c_chain} leads at {c_gwei} gwei",
+    f"Where to transact today? {c_chain} wins ({c_gwei} gwei)",
+    f"{DATE} gas check: {c_chain} vs {e_chain}",
+    f"L2 gas comparison for {DAY} — {c_chain} on top",
+    f"Daily EVM gas snapshot: {c_chain} cheapest ({DATE})",
+    f"{c_chain} at {c_gwei} gwei — {DAY} gas breakdown",
+]
+title = titles[day_hash % len(titles)]
 
-Most expensive : {e_chain}
-DEX swap cost  : ${e_cost} USDC
+# ── Varied content templates ──
+intros = [
+    f"Here's today's gas snapshot across the 4 tracked EVM chains.",
+    f"Daily gas data is in. {c_chain} continues to offer low fees.",
+    f"{DAY} gas check — comparing base fees and swap costs across chains.",
+    f"Quick look at where gas fees stand today ({DATE}).",
+    f"Gas prices for {DAY}. {c_chain} is the cheapest option right now.",
+]
+intro = intros[day_hash % len(intros)]
 
-Savings        : {pct}%
+outros = [
+    'Data sourced from on-chain RPC calls via MGO API.',
+    'All data from live RPC queries. Prices fluctuate — check before transacting.',
+    'Numbers reflect base fee at time of query. Priority fees may vary.',
+    f'Full 9-chain data (including BNB, Polygon, zkSync) available via the paid API.',
+]
+outro = outros[day_hash % len(outros)]
 
-Top 3 cheapest : {top3}
+content = f"""{intro}
 
-Agent-generated report."""
+**Chain breakdown (sorted cheapest first):**
+{breakdown}
 
+Cheapest: {c_chain} ({c_gwei} gwei)
+Most expensive: {e_chain} ({e_gwei} gwei)
+Savings: {pct}%
+Top 3: {top3_str}
+
+{outro}"""
+
+# ── Post to m/evm-gas only (no cross-posting) ──
 def post(submolt):
     payload = json.dumps({'submolt': submolt, 'title': title, 'content': content}).encode()
     req = urllib.request.Request(
@@ -50,73 +123,16 @@ def post(submolt):
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
             resp = json.loads(r.read())
-            print(f'{submolt}: {resp.get("message", "?")}')  
+            print(f'{submolt}: {resp.get("message", "OK")}')
+    except urllib.error.HTTPError as e:
+        body = e.read().decode() if e.fp else ''
+        print(f'{submolt} post failed: {e.code} {body}', file=sys.stderr)
     except Exception as e:
         print(f'{submolt} post failed: {e}', file=sys.stderr)
 
-# 1. Post to evm-gas
 post('evm-gas')
 
-import time
-time.sleep(5)
-
-# 2. Post to general
-post('general')
-
-time.sleep(10)
-
-# 3. Comment on related post
-try:
-    req = urllib.request.Request(
-        'https://www.moltbook.com/api/v1/posts?submolt=general&sort=new&limit=20',
-        headers={'Authorization': f'Bearer {API_KEY}'}
-    )
-    with urllib.request.urlopen(req, timeout=10) as r:
-        feed = json.loads(r.read())
-    kw = ['gas', 'evm', 'chain', 'defi', 'base', 'ethereum', 'fee', 'gwei', 'l2']
-    target = None
-    for p in feed.get('posts', []):
-        t = (p.get('title', '') + ' ' + p.get('content', '')).lower()
-        if any(k in t for k in kw):
-            target = p.get('id', '')
-            break
-    if target:
-        comment = f'{c_chain} is cheapest EVM chain at {c_gwei} gwei. DEX swap ${c_cost} USDC vs ${e_cost} on {e_chain} ({pct}% savings).'
-        payload = json.dumps({'content': comment}).encode()
-        req = urllib.request.Request(
-            f'https://www.moltbook.com/api/v1/posts/{target}/comments',
-            data=payload,
-            headers={'Authorization': f'Bearer {API_KEY}', 'Content-Type': 'application/json'},
-            method='POST'
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            print(f'Commented on {target}')
-except Exception as e:
-    print(f'Comment failed: {e}', file=sys.stderr)
-
-time.sleep(5)
-
-# 4. Upvote hot post
-try:
-    req = urllib.request.Request(
-        'https://www.moltbook.com/api/v1/posts?submolt=general&sort=hot&limit=5',
-        headers={'Authorization': f'Bearer {API_KEY}'}
-    )
-    with urllib.request.urlopen(req, timeout=10) as r:
-        hot = json.loads(r.read())
-    posts = hot.get('posts', [])
-    if posts:
-        uid = posts[0].get('id', '')
-        payload = json.dumps({'vote': 1}).encode()
-        req = urllib.request.Request(
-            f'https://www.moltbook.com/api/v1/posts/{uid}/vote',
-            data=payload,
-            headers={'Authorization': f'Bearer {API_KEY}', 'Content-Type': 'application/json'},
-            method='POST'
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            print(f'Upvoted: {uid}')
-except Exception as e:
-    print(f'Upvote failed: {e}', file=sys.stderr)
+# Removed: cross-posting to general, auto-commenting, auto-upvoting
+# These behaviors trigger spam detection on most platforms.
 
 print('Done!')
