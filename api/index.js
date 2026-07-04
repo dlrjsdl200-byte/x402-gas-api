@@ -107,7 +107,7 @@ const OPENAPI_SPEC = {
     version: "2.2.0",
     description:
       "Compare real-time gas prices across up to 9 EVM chains and get a cheapest-chain recommendation. Pay-per-call via x402 (USDC on Base). No API key.",
-    contact: { name: "chain-ops", url: "https://chain-ops.xyz" },
+    contact: { name: "chain-ops", url: "https://chain-ops.xyz", email: "dlrjsdl200@naver.com" },
     license: { name: "Proprietary" }
   },
   servers: [{ url: "https://api.mgo.chain-ops.xyz" }],
@@ -123,6 +123,7 @@ const OPENAPI_SPEC = {
         summary: "Free demo — raw gas prices for 4 chains",
         description: "Ethereum, Base, Arbitrum, Optimism. Rate limited to 10 requests/hour per IP. No payment.",
         operationId: "getGasDemo",
+        security: [],
         responses: { "200": { description: "Gas comparison", content: { "application/json": { schema: { $ref: "#/components/schemas/GasResponse" } } } } }
       }
     },
