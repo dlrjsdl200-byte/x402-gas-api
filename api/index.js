@@ -95,6 +95,103 @@ const WELL_KNOWN_X402_LEGACY = {
   provider: { name: "chain-ops MGO", url: "https://chain-ops.xyz", wallet: "0x665bab4c46a6ae3f755e71793e5685bc6c47dd7a" }
 };
 
+// ─── OpenAPI 3.1 spec ───────────────────────────────────────────────────────
+// Served at /openapi.json so discovery surfaces (x402scan, Bazaar, MCP
+// directories) can render rich cards for the paid endpoints. The x402 price
+// per endpoint is carried in the non-standard `x-x402` extension, which the
+// x402 ecosystem tooling reads.
+const OPENAPI_SPEC = {
+  openapi: "3.1.0",
+  info: {
+    title: "MGO — Multi-chain Gas Optimizer",
+    version: "2.2.0",
+    description:
+      "Compare real-time gas prices across up to 9 EVM chains and get a cheapest-chain recommendation. Pay-per-call via x402 (USDC on Base). No API key.",
+    contact: { name: "chain-ops", url: "https://chain-ops.xyz" },
+    license: { name: "Proprietary" }
+  },
+  servers: [{ url: "https://api.mgo.chain-ops.xyz" }],
+  "x-x402": {
+    network: "eip155:8453",
+    asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    payTo: "0x665bab4c46a6ae3f755e71793e5685bc6c47dd7a",
+    facilitator: "cdp"
+  },
+  paths: {
+    "/gas/demo": {
+      get: {
+        summary: "Free demo — raw gas prices for 4 chains",
+        description: "Ethereum, Base, Arbitrum, Optimism. Rate limited to 10 requests/hour per IP. No payment.",
+        operationId: "getGasDemo",
+        responses: { "200": { description: "Gas comparison", content: { "application/json": { schema: { $ref: "#/components/schemas/GasResponse" } } } } }
+      }
+    },
+    "/gas/basic": {
+      get: {
+        summary: "4-chain gas comparison (paid)",
+        description: "Ethereum, Base, Arbitrum, Optimism with cheapest-chain recommendation and savings %. $0.001 USDC via x402 on Base.",
+        operationId: "getGasBasic",
+        "x-x402": { price: "0.001", asset: "USDC", network: "eip155:8453" },
+        responses: {
+          "200": { description: "Gas comparison", content: { "application/json": { schema: { $ref: "#/components/schemas/GasResponse" } } } },
+          "402": { description: "Payment Required — pay $0.001 USDC via x402, then retry with the X-PAYMENT header." }
+        }
+      }
+    },
+    "/gas/premium": {
+      get: {
+        summary: "9-chain gas comparison (paid)",
+        description: "Adds BNB, Polygon, Avalanche, zkSync, Hyperliquid to the basic 4. $0.002 USDC via x402 on Base.",
+        operationId: "getGasPremium",
+        "x-x402": { price: "0.002", asset: "USDC", network: "eip155:8453" },
+        responses: {
+          "200": { description: "Gas comparison", content: { "application/json": { schema: { $ref: "#/components/schemas/GasResponse" } } } },
+          "402": { description: "Payment Required — pay $0.002 USDC via x402, then retry with the X-PAYMENT header." }
+        }
+      }
+    }
+  },
+  components: {
+    schemas: {
+      GasResponse: {
+        type: "object",
+        required: ["success", "chains", "recommendation"],
+        properties: {
+          success: { type: "boolean" },
+          timestamp: { type: "string", format: "date-time" },
+          tier: { type: "string", enum: ["demo", "basic", "premium"] },
+          totalLatencyMs: { type: "number" },
+          recommendation: {
+            type: "object",
+            properties: {
+              cheapestChain: { type: "string", example: "Base" },
+              cheapestChainId: { type: "number", example: 8453 },
+              estimatedCostsUsdc: { type: "object" },
+              vsExpensive: { type: "object", properties: { chain: { type: "string" }, savingsPercent: { type: "string", example: "99.8%" } } },
+              action: { type: "string", example: "Use Base — saves 99.8% vs Ethereum" }
+            }
+          },
+          chains: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                chain: { type: "string" },
+                chainId: { type: "number" },
+                nativeToken: { type: "string" },
+                tokenPriceUsd: { type: "number" },
+                gasPrice: { type: "object" },
+                estimatedCosts: { type: "object" },
+                status: { type: "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
 // ─── MCP tool definitions ───────────────────────────────────────────────────
 const MCP_TOOLS = [
   {
@@ -282,6 +379,7 @@ app.get("/", (req, res) => {
       "/skill.md": "OpenClaw skill file",
       "/.well-known/x402": "x402scan discovery",
       "/.well-known/x402.json": "x402 discovery (legacy)",
+      "/openapi.json": "OpenAPI 3.1 spec",
       "/.well-known/mcp.json": "MCP discovery JSON",
       "/.well-known/agent-card.json": "A2A agent card",
       "/health": "Server health check",
@@ -301,6 +399,7 @@ app.get("/.well-known/mcp.json", (req, res) => { res.json(WELL_KNOWN_MCP); });
 app.get("/.well-known/agent-card.json", (req, res) => { res.json(WELL_KNOWN_AGENT_CARD); });
 app.get("/.well-known/x402", (req, res) => { res.json(WELL_KNOWN_X402_DISCOVERY); });
 app.get("/.well-known/x402.json", (req, res) => { res.json(WELL_KNOWN_X402_LEGACY); });
+app.get("/openapi.json", (req, res) => { res.json(OPENAPI_SPEC); });
 app.get("/health", (req, res) => { res.json({ status: "ok", timestamp: new Date().toISOString(), version: "2.2.0" }); });
 
 // ─── Gas routes ──────────────────────────────────────────────────────────────
