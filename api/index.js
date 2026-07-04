@@ -401,6 +401,9 @@ app.get("/.well-known/agent-card.json", (req, res) => { res.json(WELL_KNOWN_AGEN
 app.get("/.well-known/x402", (req, res) => { res.json(WELL_KNOWN_X402_DISCOVERY); });
 app.get("/.well-known/x402.json", (req, res) => { res.json(WELL_KNOWN_X402_LEGACY); });
 app.get("/openapi.json", (req, res) => { res.json(OPENAPI_SPEC); });
+// Serve a brand icon at the API root so discovery surfaces (x402scan, etc.)
+// can render one. Redirect to the canonical favicon on the marketing site.
+app.get("/favicon.ico", (req, res) => { res.redirect(302, "https://chain-ops.xyz/favicon.ico"); });
 app.get("/health", (req, res) => { res.json({ status: "ok", timestamp: new Date().toISOString(), version: "2.2.0" }); });
 
 // ─── Gas routes ──────────────────────────────────────────────────────────────
