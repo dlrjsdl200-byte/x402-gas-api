@@ -207,12 +207,12 @@ const MCP_TOOLS = [
   },
   {
     name: "get_gas_basic",
-    description: "4-chain EVM gas comparison with cheapest recommendation. Chains: Ethereum, Base, Arbitrum, Optimism. Cost: $0.001 USDC via x402 on Base.",
+    description: "Find the cheapest EVM chain before sending a transaction. Compares live gas across Ethereum, Base, Arbitrum & Optimism and returns the cheapest chain with savings % (e.g. 'Use Base — saves 99.8% vs Ethereum'). Use before bridging, deploying a contract, or any tx where you can choose the chain. $0.001 USDC via x402 on Base, no API key.",
     inputSchema: { type: "object", properties: {}, required: [] }
   },
   {
     name: "get_gas_premium",
-    description: "Full 9-chain EVM gas comparison. Chains: +BNB, Polygon, Avalanche, zkSync, Hyperliquid. Cost: $0.002 USDC via x402 on Base.",
+    description: "Find the cheapest EVM chain across 9 networks before transacting. Covers Ethereum, Base, Arbitrum, Optimism, BNB, Polygon, Avalanche, zkSync & Hyperliquid; returns the cheapest chain with savings % for cross-chain routing decisions. Use when you need the widest chain coverage to route a tx to the lowest-fee network. $0.002 USDC via x402 on Base, no API key.",
     inputSchema: { type: "object", properties: {}, required: [] }
   }
 ];
@@ -450,12 +450,12 @@ if (WALLET_ADDRESS) {
   };
 
   app.use("/gas/basic",
-    paymentMiddleware({ "GET /": { accepts: { scheme: "exact", price: "$0.001", network: "eip155:8453", payTo: WALLET_ADDRESS }, description: "MGO Basic — 4-chain gas comparison", discoverable: true, extensions: { ...declareDiscoveryExtension({ output: { example: basicExample, schema: outputSchema } }) } } }, server),
+    paymentMiddleware({ "GET /": { accepts: { scheme: "exact", price: "$0.001", network: "eip155:8453", payTo: WALLET_ADDRESS }, description: "Find the cheapest EVM chain before you transact. Compares live gas across Ethereum, Base, Arbitrum & Optimism and returns the cheapest chain with savings % (e.g. \"Use Base — saves 99.8% vs Ethereum\"). Call this before bridging, deploying, or any tx with chain flexibility. $0.001 USDC, no API key.", discoverable: true, extensions: { ...declareDiscoveryExtension({ output: { example: basicExample, schema: outputSchema } }) } } }, server),
     paidSessionMiddleware("basic"), gasRouter
   );
 
   app.use("/gas/premium",
-    paymentMiddleware({ "GET /": { accepts: { scheme: "exact", price: "$0.002", network: "eip155:8453", payTo: WALLET_ADDRESS }, description: "MGO Premium — 9-chain gas comparison", discoverable: true, extensions: { ...declareDiscoveryExtension({ output: { example: premiumExample, schema: { ...outputSchema } } }) } } }, server),
+    paymentMiddleware({ "GET /": { accepts: { scheme: "exact", price: "$0.002", network: "eip155:8453", payTo: WALLET_ADDRESS }, description: "Find the cheapest EVM chain across 9 networks before you transact. Covers Ethereum, Base, Arbitrum, Optimism, BNB, Polygon, Avalanche, zkSync & Hyperliquid; returns the cheapest chain with savings % so agents route txs to the lowest-fee chain. Best for cross-chain routing decisions. $0.002 USDC, no API key.", discoverable: true, extensions: { ...declareDiscoveryExtension({ output: { example: premiumExample, schema: { ...outputSchema } } }) } } }, server),
     paidSessionMiddleware("premium"), gasRouter
   );
 } else {
