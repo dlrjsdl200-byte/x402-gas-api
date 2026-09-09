@@ -55,15 +55,17 @@ Token: USDC
 const WELL_KNOWN_MCP = {
   name: "MGO — Multi-chain Gas Optimizer",
   description: "Real-time gas price comparison across up to 9 EVM chains. Returns cheapest chain recommendation with savings calculations. Pay-per-call via x402 on Base.",
-  version: "1.0.0",
+  version: "2.2.0",
   url: "https://api.mgo.chain-ops.xyz",
+  mcp: { transport: "streamable-http", endpoint: "https://api.mgo.chain-ops.xyz/mcp" },
   payment: { protocol: "x402", network: "base", token: "USDC", wallet: "0x665bab4c46a6ae3f755e71793e5685bc6c47dd7a" },
   tools: [
     { name: "get_gas_demo", description: "Free gas prices for 4 chains (rate limited)", endpoint: "GET /gas/demo", price: "free" },
+    { name: "get_cheapest_chain", description: "Direct recommendation for the cheapest EVM chain right now with savings % (free, rate limited)", endpoint: "GET /gas/demo", price: "free" },
     { name: "get_gas_basic", description: "4-chain gas comparison with cheapest recommendation", endpoint: "GET /gas/basic", price: "$0.001 USDC" },
     { name: "get_gas_premium", description: "9-chain full gas comparison", endpoint: "GET /gas/premium", price: "$0.002 USDC" }
   ],
-  links: { dashboard: "https://mgo.chain-ops.xyz", docs: "https://api.mgo.chain-ops.xyz/llms.txt", github: "https://github.com/dlrjsdl200-byte/x402-gas-api" }
+  links: { dashboard: "https://mgo.chain-ops.xyz", docs: "https://api.mgo.chain-ops.xyz/llms.txt", github: "https://github.com/dlrjsdl200-byte/x402-gas-api", npm: "https://www.npmjs.com/package/chain-ops-mgo" }
 };
 
 const WELL_KNOWN_AGENT_CARD = {
@@ -71,7 +73,7 @@ const WELL_KNOWN_AGENT_CARD = {
   description: "x402-native API that compares real-time gas prices across up to 9 EVM chains. Built for trading agents, DeFi bots, and AI agents optimizing transaction costs.",
   url: "https://api.mgo.chain-ops.xyz",
   provider: { name: "chain-ops", url: "https://chain-ops.xyz" },
-  version: "1.0.0",
+  version: "2.2.0",
   capabilities: { payment: "x402", streaming: false, discovery: true },
   skills: [{ id: "gas-comparison", name: "EVM Gas Price Comparison", description: "Compare gas prices across EVM chains and find the cheapest option", tags: ["gas", "evm", "optimization", "defi", "trading"] }],
   tags: ["gas", "evm", "x402", "defi", "optimization", "multi-chain"]
@@ -302,9 +304,9 @@ app.post("/mcp", async (req, res) => {
       return res.json({
         jsonrpc: "2.0", id,
         result: {
-          protocolVersion: "2024-11-05",
+          protocolVersion: "2025-06-18",
           capabilities: { tools: {} },
-          serverInfo: { name: "mgo-gas-optimizer", version: "1.0.0" }
+          serverInfo: { name: "mgo-gas-optimizer", version: "2.2.0" }
         }
       });
     }
@@ -353,7 +355,7 @@ app.post("/mcp", async (req, res) => {
 app.get("/mcp", (req, res) => {
   res.json({
     name: "mgo-gas-optimizer",
-    version: "1.0.0",
+    version: "2.2.0",
     description: "Compare gas prices across up to 9 EVM chains. Pay-per-call via x402 on Base.",
     tools: MCP_TOOLS.map(t => ({ name: t.name, description: t.description })),
     transport: "http",
