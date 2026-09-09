@@ -426,23 +426,28 @@ app.get("/_diag/bazaar", async (req, res) => {
     if (!auth) return res.status(500).json({ error: "no discovery auth header" });
 
     const base = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources";
-    const all = [];
-    let cursor = null;
-    let pages = 0;
-
-    do {
-      const url = cursor ? `${base}?cursor=${encodeURIComponent(cursor)}` : base;
-      const r = await fetch(url, { headers: auth });
-      const text = await r.text();
-      if (!r.ok) {
-        return res.status(502).json({ error: `discovery ${r.status}`, body: text.slice(0, 400) });
-      }
-      const j = JSON.parse(text);
-      const items = j.items || j.resources || j.data || [];
-      all.push(...items);
-      cursor = j.nextCursor || j.next_cursor || (j.pagination && j.pagination.next_cursor) || null;
-      pages++;
-    } while (cursor && pages < 30);
+        const all = [];
+        let pages = 0;
+        let offset = 0;
+        let keys = null;
+        let stop = false;
+        while (!stop && pages < 30) {
+          const url = pages === 0 ? base : `${base}?limit=100&offset=${offset}`;
+          const r = await fetch(url, { headers: auth });
+          const text = await r.text();
+          if (!r.ok) {
+            if (pages === 0) return res.status(502).json({ error: `discovery ${r.status}`, body: text.slice(0, 400) });
+            stop = true;
+            break;
+          }
+          const j = JSON.parse(text);
+          if (!keys) keys = Object.keys(j);
+          const items = j.items || j.resources || j.data || [];
+          all.push(...items);
+          offset += items.length;
+          pages++;
+          if (items.length < 100) stop = true;
+        }
 
     const mine = all.filter((x) => JSON.stringify(x).includes("mgo.chain-ops.xyz"));
     res.json({
