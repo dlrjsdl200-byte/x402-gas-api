@@ -408,6 +408,54 @@ app.get("/openapi.json", (req, res) => { res.json(OPENAPI_SPEC); });
 app.get("/favicon.ico", (req, res) => { res.redirect(302, "https://chain-ops.xyz/favicon.ico"); });
 app.get("/health", (req, res) => { res.json({ status: "ok", timestamp: new Date().toISOString(), version: "2.2.0" }); });
 
+// ─── Temporary diagnostic: is MGO listed in the CDP x402 Bazaar? ─────────
+// 붙여넣을 위치: api/index.js 의 app.get("/health", ...) 줄 바로 아래
+// 호출: /_diag/bazaar?k=<DIAG_TOKEN>   (DIAG_TOKEN 미설정 시 404 — 기본은 비활성)
+// 확인 끝나면 이 블록을 지우세요.
+app.get("/_diag/bazaar", async (req, res) => {
+  const token = process.env.DIAG_TOKEN;
+  if (!token || req.query.k !== token) return res.status(404).json({ error: "Not found" });
+
+  const id = process.env.CDP_API_KEY_ID;
+  const secret = process.env.CDP_API_KEY_SECRET;
+  if (!id || !secret) return res.status(503).json({ error: "CDP credentials not configured" });
+
+  try {
+    const headers = await createCdpFacilitatorConfig(id, secret).createAuthHeaders();
+    const auth = headers.list;
+    if (!auth) return res.status(500).json({ error: "no discovery auth header" });
+
+    const base = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources";
+    const all = [];
+    let cursor = null;
+    let pages = 0;
+
+    do {
+      const url = cursor ? `${base}?cursor=${encodeURIComponent(cursor)}` : base;
+      const r = await fetch(url, { headers: auth });
+      const text = await r.text();
+      if (!r.ok) {
+        return res.status(502).json({ error: `discovery ${r.status}`, body: text.slice(0, 400) });
+      }
+      const j = JSON.parse(text);
+      const items = j.items || j.resources || j.data || [];
+      all.push(...items);
+      cursor = j.nextCursor || j.next_cursor || (j.pagination && j.pagination.next_cursor) || null;
+      pages++;
+    } while (cursor && pages < 30);
+
+    const mine = all.filter((x) => JSON.stringify(x).includes("mgo.chain-ops.xyz"));
+    res.json({
+      pages,
+      totalResources: all.length,
+      mgoListed: mine.length > 0,
+      mgoEntries: mine,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Gas routes ──────────────────────────────────────────────────────────────
 app.use("/gas/demo", demoRateLimit, demoSessionMiddleware, gasRouter);
 
