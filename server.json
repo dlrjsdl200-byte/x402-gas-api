@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "xyz.chain-ops/mgo",
+  "description": "Real-time gas price comparison across up to 9 EVM chains. Returns the cheapest-chain recommendation with savings calculations. Pay-per-call via x402 on Base - no API key, no account.",
+  "version": "2.2.0",
+  "websiteUrl": "https://mgo.chain-ops.xyz",
+  "repository": {
+    "url": "https://github.com/dlrjsdl200-byte/x402-gas-api",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.mgo.chain-ops.xyz/mcp"
+    }
+  ]
+}
