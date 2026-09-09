@@ -431,8 +431,11 @@ app.get("/_diag/bazaar", async (req, res) => {
         let offset = 0;
         let keys = null;
     const fps = [];
+    const t0 = Date.now();
+    let reason = "end-of-list";
         let stop = false;
-        while (!stop && pages < 12) {
+        while (!stop && pages < 60) {
+      if (Date.now() - t0 > 7000) { reason = "time-guard"; break; }
           const url = pages === 0 ? base : `${base}?limit=100&offset=${offset}`;
           const r = await fetch(url, { headers: auth });
           const text = await r.text();
