@@ -443,9 +443,10 @@ app.get("/_diag/bazaar", async (req, res) => {
           }
           const j = JSON.parse(text);
           if (!keys) keys = Object.keys(j);
-      fps.push(items.length + ':' + (items[0] ? String(items[0].resource || items[0].url || JSON.stringify(items[0]).slice(0,60)) : 'none'));
+      // moved below
           const items = j.items || j.resources || j.data || [];
           all.push(...items);
+      fps.push(items.length + ':' + (items[0] ? String(items[0].resource || items[0].url || JSON.stringify(items[0]).slice(0,60)) : 'none'));
           offset += items.length;
           pages++;
           if (items.length < 100) stop = true;
