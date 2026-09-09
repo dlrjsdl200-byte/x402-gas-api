@@ -432,7 +432,7 @@ app.get("/_diag/bazaar", async (req, res) => {
         let keys = null;
     const fps = [];
         let stop = false;
-        while (!stop && pages < 3) {
+        while (!stop && pages < 12) {
           const url = pages === 0 ? base : `${base}?limit=100&offset=${offset}`;
           const r = await fetch(url, { headers: auth });
           const text = await r.text();
