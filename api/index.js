@@ -430,8 +430,9 @@ app.get("/_diag/bazaar", async (req, res) => {
         let pages = 0;
         let offset = 0;
         let keys = null;
+    const fps = [];
         let stop = false;
-        while (!stop && pages < 30) {
+        while (!stop && pages < 3) {
           const url = pages === 0 ? base : `${base}?limit=100&offset=${offset}`;
           const r = await fetch(url, { headers: auth });
           const text = await r.text();
@@ -442,6 +443,7 @@ app.get("/_diag/bazaar", async (req, res) => {
           }
           const j = JSON.parse(text);
           if (!keys) keys = Object.keys(j);
+      fps.push(items.length + ':' + (items[0] ? String(items[0].resource || items[0].url || JSON.stringify(items[0]).slice(0,60)) : 'none'));
           const items = j.items || j.resources || j.data || [];
           all.push(...items);
           offset += items.length;
