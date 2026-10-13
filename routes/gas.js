@@ -252,6 +252,18 @@ router.get("/", async (req, res) => {
 
     const validResults = gasData.filter((g) => g.status === "ok");
 
+    // Paid tiers: never charge for an empty or unpriced answer. A >=400 status
+    // makes the x402 middleware skip settlement, so the caller keeps their USDC.
+    if (!isDemo && (validResults.length === 0 || !(tokenPrices.ETH > 0))) {
+      console.error("[GAS] upstream unavailable", { chainsOk: validResults.length, eth: tokenPrices.ETH });
+      return res.status(503).set("Retry-After", "15").json({
+        success: false,
+        error: "Upstream data unavailable (RPC or price feed). You were not charged; retry shortly.",
+        chainsQueried: activeChains.length,
+        chainsSucceeded: validResults.length,
+      });
+    }
+
     // Demo: no recommendation (raw gas data only)
     const recommendation = isDemo ? null : buildRecommendation(validResults);
 
@@ -280,7 +292,7 @@ router.get("/", async (req, res) => {
       meta: {
         provider: "MGO — Multi-chain Gas Optimizer",
         protocol: "x402",
-        version: "2.0.0",
+        version: require("../package.json").version,
         tier: isDemo ? "demo" : isPremium ? "premium" : "basic",
         chainsQueried: activeChains.length,
         chainsSucceeded: validResults.length,
