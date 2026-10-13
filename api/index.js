@@ -12,7 +12,25 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
+
+// ─── Constants ──────────────────────────────────────────────────────────────
+// Receiving wallet for USDC on Base. Hard-coded on purpose so every discovery
+// surface advertises the same address; the env var is only allowed to agree.
+const PAY_TO = "0x665bab4c46a6ae3f755e71793e5685bc6c47dd7a";
+const API_BASE = "https://api.mgo.chain-ops.xyz";
+const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const VERSION = require("../package.json").version;
+const WALLET_ADDRESS = process.env.WALLET_ADDRESS || PAY_TO;
+if (WALLET_ADDRESS.toLowerCase() !== PAY_TO) {
+  console.error(`[config] WALLET_ADDRESS env (${WALLET_ADDRESS}) differs from PAY_TO constant (${PAY_TO})`);
+}
+if (!process.env.CDP_API_KEY_ID || !process.env.CDP_API_KEY_SECRET) {
+  console.error("[config] CDP_API_KEY_ID / CDP_API_KEY_SECRET missing: facilitator auth will fail (401)");
+}
+
+// Behind Vercel's proxy: makes req.protocol https and req.ip the client IP.
+app.set("trust proxy", true);
+app.disable("x-powered-by");
 
 const SKILL_MD = `# MGO — Multi-chain Gas Optimizer
 
@@ -56,7 +74,7 @@ Token: USDC
 const WELL_KNOWN_MCP = {
   name: "MGO — Multi-chain Gas Optimizer",
   description: "Real-time gas price comparison across up to 9 EVM chains. Returns cheapest chain recommendation with savings calculations. Pay-per-call via x402 on Base.",
-  version: "2.2.0",
+  version: VERSION,
   url: "https://api.mgo.chain-ops.xyz",
   mcp: { transport: "streamable-http", endpoint: "https://api.mgo.chain-ops.xyz/mcp" },
   payment: { protocol: "x402", network: "base", token: "USDC", wallet: "0x665bab4c46a6ae3f755e71793e5685bc6c47dd7a" },
@@ -74,7 +92,7 @@ const WELL_KNOWN_AGENT_CARD = {
   description: "x402-native API that compares real-time gas prices across up to 9 EVM chains. Built for trading agents, DeFi bots, and AI agents optimizing transaction costs.",
   url: "https://api.mgo.chain-ops.xyz",
   provider: { name: "chain-ops", url: "https://chain-ops.xyz" },
-  version: "2.2.0",
+  version: VERSION,
   capabilities: { payment: "x402", streaming: false, discovery: true },
   skills: [{ id: "gas-comparison", name: "EVM Gas Price Comparison", description: "Compare gas prices across EVM chains and find the cheapest option", tags: ["gas", "evm", "optimization", "defi", "trading"] }],
   tags: ["gas", "evm", "x402", "defi", "optimization", "multi-chain"]
@@ -107,7 +125,7 @@ const OPENAPI_SPEC = {
   openapi: "3.1.0",
   info: {
     title: "MGO — Multi-chain Gas Optimizer",
-    version: "2.2.0",
+    version: VERSION,
     description:
       "Compare real-time gas prices across up to 9 EVM chains and get a cheapest-chain recommendation. Pay-per-call via x402 (USDC on Base). No API key.",
     contact: { name: "chain-ops", url: "https://chain-ops.xyz", email: "dlrjsdl200@naver.com" },
@@ -138,7 +156,7 @@ const OPENAPI_SPEC = {
         "x-x402": { price: "0.001", asset: "USDC", network: "eip155:8453" },
         responses: {
           "200": { description: "Gas comparison", content: { "application/json": { schema: { $ref: "#/components/schemas/GasResponse" } } } },
-          "402": { description: "Payment Required — pay $0.001 USDC via x402, then retry with the X-PAYMENT header." }
+          "402": { description: "Payment Required. Pay $0.001 USDC via x402 (requirements in the PAYMENT-REQUIRED header), then retry with the PAYMENT-SIGNATURE header." }
         }
       }
     },
@@ -150,7 +168,7 @@ const OPENAPI_SPEC = {
         "x-x402": { price: "0.002", asset: "USDC", network: "eip155:8453" },
         responses: {
           "200": { description: "Gas comparison", content: { "application/json": { schema: { $ref: "#/components/schemas/GasResponse" } } } },
-          "402": { description: "Payment Required — pay $0.002 USDC via x402, then retry with the X-PAYMENT header." }
+          "402": { description: "Payment Required. Pay $0.002 USDC via x402 (requirements in the PAYMENT-REQUIRED header), then retry with the PAYMENT-SIGNATURE header." }
         }
       }
     }
@@ -245,35 +263,50 @@ function formatGasData(data) {
   return lines.join("\n");
 }
 
+// Self-calls go over HTTP so the paid path stays identical to what agents hit.
+// They carry a fixed User-Agent so /stats can separate them from real traffic.
+const SELF_UA = "mgo-mcp-internal/" + VERSION;
+const selfFetch = (p) => fetch(`${API_BASE}${p}`, { headers: { "user-agent": SELF_UA }, signal: AbortSignal.timeout(25_000) });
+
+// Decode the x402 v2 PAYMENT-REQUIRED header (base64 JSON) if present.
+function decodePaymentRequired(res) {
+  const h = res.headers.get("payment-required");
+  if (!h) return null;
+  try { return JSON.parse(Buffer.from(h, "base64").toString("utf8")); } catch { return null; }
+}
+
 async function callMcpTool(toolName) {
-  const MGO = "https://api.mgo.chain-ops.xyz";
   if (toolName === "get_gas_demo" || toolName === "get_cheapest_chain") {
-    const res = await fetch(`${MGO}/gas/demo`);
+    const res = await selfFetch("/gas/demo");
     if (!res.ok) throw new Error(`Gas demo API error: ${res.status}`);
     const data = await res.json();
     if (toolName === "get_cheapest_chain" && data.chains?.length) {
-      const sorted = [...data.chains].sort(
-        (a, b) => parseFloat(a.gasPrice?.baseFeeGwei || "999") - parseFloat(b.gasPrice?.baseFeeGwei || "999")
-      );
+      // Demo responses omit USDC figures, so compare native DEX-swap cost.
+      // All four demo chains use ETH, so native cost is directly comparable.
+      const ok = data.chains.filter(c => c.status === "ok" && c.estimatedCosts?.dexSwap?.native);
+      if (!ok.length) throw new Error("no chain data available");
+      const sorted = [...ok].sort((a, b) => parseFloat(a.estimatedCosts.dexSwap.native) - parseFloat(b.estimatedCosts.dexSwap.native));
       const cheap = sorted[0], exp = sorted[sorted.length - 1];
-      const cc = cheap.estimatedCosts?.dexSwap?.usdc || 0;
-      const ec = exp.estimatedCosts?.dexSwap?.usdc || 0;
-      const savings = ec > 0 ? ((1 - cc / ec) * 100).toFixed(1) : "99.8";
-      return `🏆 Cheapest EVM chain: ${cheap.chain}\n   ${cheap.gasPrice?.baseFeeGwei} gwei  |  DEX swap $${cc} USDC\n\n   vs ${exp.chain}: $${ec} USDC  →  saves ${savings}%\n\n   For all 9 chains: use get_gas_premium ($0.002 USDC)`;
+      const cc = parseFloat(cheap.estimatedCosts.dexSwap.native), ec = parseFloat(exp.estimatedCosts.dexSwap.native);
+      const savings = ec > 0 ? ((1 - cc / ec) * 100).toFixed(1) : "0.0";
+      return `🏆 Cheapest EVM chain: ${cheap.chain}\n   ${cheap.gasPrice?.baseFeeGwei} gwei  |  DEX swap ${cc.toFixed(8)} ETH\n\n   vs ${exp.chain}: ${ec.toFixed(8)} ETH  →  saves ${savings}%\n\n   USDC figures and the 9-chain view are in get_gas_basic / get_gas_premium (x402, $0.001 / $0.002).`;
     }
     return formatGasData(data);
   }
   const endpoint = toolName === "get_gas_basic" ? "/gas/basic" : "/gas/premium";
   const price = toolName === "get_gas_basic" ? "$0.001" : "$0.002";
-  const res = await fetch(`${MGO}${endpoint}`);
+  const res = await selfFetch(endpoint);
   if (res.status === 402) {
-    const info = await res.json().catch(() => ({}));
+    const pr = decodePaymentRequired(res);
     return JSON.stringify({
       _requires_payment: true,
       price: `${price} USDC`,
       network: "Base (eip155:8453)",
       token: "USDC",
-      payment_challenge: info,
+      payTo: PAY_TO,
+      resource: `${API_BASE}${endpoint}`,
+      how: "Fetch the resource URL with an x402 client (e.g. @x402/fetch). It reads the PAYMENT-REQUIRED header, signs a USDC authorization and retries with PAYMENT-SIGNATURE.",
+      payment_required: pr || undefined,
       message: `Payment required: ${price} USDC on Base. This is an x402 pay-per-call endpoint.`
     }, null, 2);
   }
@@ -288,7 +321,9 @@ app.use(accessLog);
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-PAYMENT, Payment-Signature, mcp-session-id");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-PAYMENT, PAYMENT-SIGNATURE, Mcp-Session-Id, MCP-Protocol-Version");
+  // Browser clients (x402scan "Try it", dashboards) can only read these if exposed.
+  res.setHeader("Access-Control-Expose-Headers", "PAYMENT-REQUIRED, PAYMENT-RESPONSE, X-PAYMENT-RESPONSE, Mcp-Session-Id");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -297,22 +332,35 @@ app.use(express.json());
 
 // ─── Smithery MCP Streamable HTTP endpoint ──────────────────────────────────
 // Spec: https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/
+const MCP_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 app.post("/mcp", async (req, res) => {
-  const { jsonrpc, id, method, params } = req.body || {};
-
-  // Set SSE headers for streaming (Smithery expects this)
+  const body = req.body;
   res.setHeader("Content-Type", "application/json");
+  if (!body || Array.isArray(body) || body.jsonrpc !== "2.0") {
+    return res.status(400).json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } });
+  }
+  const { id, method, params } = body;
+
+  // Notifications (no id) must not get a JSON-RPC response: 202 Accepted, empty body.
+  if (id === undefined || id === null) {
+    return res.status(202).end();
+  }
 
   try {
     if (method === "initialize") {
+      const requested = params?.protocolVersion;
       return res.json({
         jsonrpc: "2.0", id,
         result: {
-          protocolVersion: "2025-06-18",
+          protocolVersion: MCP_PROTOCOL_VERSIONS.includes(requested) ? requested : MCP_PROTOCOL_VERSIONS[0],
           capabilities: { tools: {} },
-          serverInfo: { name: "mgo-gas-optimizer", version: "2.2.0" }
+          serverInfo: { name: "mgo-gas-optimizer", version: VERSION }
         }
       });
+    }
+
+    if (method === "ping") {
+      return res.json({ jsonrpc: "2.0", id, result: {} });
     }
 
     if (method === "tools/list") {
@@ -327,19 +375,17 @@ app.post("/mcp", async (req, res) => {
       if (!MCP_TOOLS.find(t => t.name === toolName)) {
         return res.json({
           jsonrpc: "2.0", id,
-          error: { code: -32601, message: `Unknown tool: ${toolName}` }
+          error: { code: -32602, message: `Unknown tool: ${toolName}` }
         });
       }
-      const text = await callMcpTool(toolName);
-      return res.json({
-        jsonrpc: "2.0", id,
-        result: { content: [{ type: "text", text }] }
-      });
-    }
-
-    // notifications/initialized — no response needed
-    if (method === "notifications/initialized") {
-      return res.status(204).end();
+      try {
+        const text = await callMcpTool(toolName);
+        return res.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
+      } catch (err) {
+        // Tool execution errors are reported inside the result per MCP spec.
+        console.error("[mcp tool]", toolName, err.message);
+        return res.json({ jsonrpc: "2.0", id, result: { isError: true, content: [{ type: "text", text: `Tool failed: ${err.message}` }] } });
+      }
     }
 
     return res.json({
@@ -348,18 +394,22 @@ app.post("/mcp", async (req, res) => {
     });
 
   } catch (err) {
+    console.error("[mcp]", err);
     return res.json({
       jsonrpc: "2.0", id,
-      error: { code: -32603, message: err.message || "Internal error" }
+      error: { code: -32603, message: "Internal error" }
     });
   }
 });
 
-// GET /mcp — Smithery discovery ping
+// GET /mcp: no SSE stream is offered (405 per Streamable HTTP spec); plain GETs get a discovery blurb.
 app.get("/mcp", (req, res) => {
+  if ((req.headers.accept || "").includes("text/event-stream")) {
+    return res.status(405).set("Allow", "POST").json({ error: "SSE stream not supported; use POST /mcp" });
+  }
   res.json({
     name: "mgo-gas-optimizer",
-    version: "2.2.0",
+    version: VERSION,
     description: "Compare gas prices across up to 9 EVM chains. Pay-per-call via x402 on Base.",
     tools: MCP_TOOLS.map(t => ({ name: t.name, description: t.description })),
     transport: "http",
@@ -371,7 +421,7 @@ app.get("/mcp", (req, res) => {
 app.get("/", (req, res) => {
   res.json({
     name: "MGO - Multi-chain Gas Optimizer",
-    version: "2.2.0",
+    version: VERSION,
     protocol: "x402",
     tiers: {
       basic: { price: `$${TIER_PRICING.basic.amount} USDC / 1 call`, chains: TIER_PRICING.basic.chains, description: TIER_PRICING.basic.description },
@@ -410,84 +460,67 @@ app.get("/openapi.json", (req, res) => { res.json(OPENAPI_SPEC); });
 // Serve a brand icon at the API root so discovery surfaces (x402scan, etc.)
 // can render one. Redirect to the canonical favicon on the marketing site.
 app.get("/favicon.ico", (req, res) => { res.redirect(302, "https://chain-ops.xyz/favicon.ico"); });
-app.get("/health", (req, res) => { res.json({ status: "ok", timestamp: new Date().toISOString(), version: "2.2.0" }); });
+app.get("/health", (req, res) => { res.json({ status: "ok", timestamp: new Date().toISOString(), version: VERSION }); });
 app.get("/stats", statsHandler);
-
-// ─── Temporary diagnostic: is MGO listed in the CDP x402 Bazaar? ─────────
-// 붙여넣을 위치: api/index.js 의 app.get("/health", ...) 줄 바로 아래
-// 호출: /_diag/bazaar?k=<DIAG_TOKEN>   (DIAG_TOKEN 미설정 시 404 — 기본은 비활성)
-// 확인 끝나면 이 블록을 지우세요.
-app.get("/_diag/bazaar", async (req, res) => {
-  const token = process.env.DIAG_TOKEN;
-  if (!token || req.query.k !== token) return res.status(404).json({ error: "Not found" });
-
-  const id = process.env.CDP_API_KEY_ID;
-  const secret = process.env.CDP_API_KEY_SECRET;
-  if (!id || !secret) return res.status(503).json({ error: "CDP credentials not configured" });
-
-  try {
-    const headers = await createCdpFacilitatorConfig(id, secret).createAuthHeaders();
-    const auth = headers.list;
-    if (!auth) return res.status(500).json({ error: "no discovery auth header" });
-
-    const base = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources";
-        const all = [];
-        let pages = 0;
-        let offset = 0;
-        let keys = null;
-    const fps = [];
-    const t0 = Date.now();
-    let reason = "end-of-list";
-        let stop = false;
-        while (!stop && pages < 60) {
-      if (Date.now() - t0 > 7000) { reason = "time-guard"; break; }
-          const url = pages === 0 ? base : `${base}?limit=100&offset=${offset}`;
-          const r = await fetch(url, { headers: auth });
-          const text = await r.text();
-          if (!r.ok) {
-            if (pages === 0) return res.status(502).json({ error: `discovery ${r.status}`, body: text.slice(0, 400) });
-            stop = true;
-            break;
-          }
-          const j = JSON.parse(text);
-          if (!keys) keys = Object.keys(j);
-      // moved below
-          const items = j.items || j.resources || j.data || [];
-          all.push(...items);
-      fps.push(items.length + ':' + (items[0] ? String(items[0].resource || items[0].url || JSON.stringify(items[0]).slice(0,60)) : 'none'));
-          offset += items.length;
-          pages++;
-          if (items.length < 100) stop = true;
-        }
-
-    const mine = all.filter((x) => JSON.stringify(x).includes("mgo.chain-ops.xyz"));
-    res.json({
-      pages,
-      totalResources: all.length,
-      mgoListed: mine.length > 0,
-      mgoEntries: mine,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ─── Gas routes ──────────────────────────────────────────────────────────────
 app.use("/gas/demo", demoRateLimit, demoSessionMiddleware, gasRouter);
 
-if (WALLET_ADDRESS) {
+// x402 v1 clients (legacy `x402-fetch` / `x402-axios`) read payment requirements
+// from the 402 body, not from the PAYMENT-REQUIRED header. The @x402 server
+// middleware sends `{}` as body, so give them a v1-shaped body derived from the
+// header. NOTE: this server only settles v2 payments; v1 attempts will get a
+// second 402, but they are then visible in /stats with their payer address.
+function toV1Body(prHeader) {
+  const pr = JSON.parse(Buffer.from(String(prHeader), "base64").toString("utf8"));
+  return {
+    x402Version: 1,
+    error: pr.error || "Payment required",
+    accepts: (pr.accepts || []).map((a) => ({
+      scheme: a.scheme,
+      network: a.network === "eip155:8453" ? "base" : a.network,
+      maxAmountRequired: a.amount,
+      resource: pr.resource?.url,
+      description: pr.resource?.description || "",
+      mimeType: pr.resource?.mimeType || "application/json",
+      payTo: a.payTo,
+      maxTimeoutSeconds: a.maxTimeoutSeconds,
+      asset: a.asset,
+      extra: a.extra || { name: "USD Coin", version: "2" },
+    })),
+    // v2 clients: the authoritative copy is in the PAYMENT-REQUIRED header.
+    paymentRequired: pr,
+  };
+}
+function withV1Body(pay) {
+  return (req, res, next) => {
+    const origJson = res.json.bind(res);
+    res.json = (body) => {
+      const pr = res.getHeader("PAYMENT-REQUIRED");
+      if (res.statusCode === 402 && pr && body && typeof body === "object" && Object.keys(body).length === 0) {
+        try { body = toV1Body(pr); } catch (e) { console.error("[x402] v1 body", e.message); }
+      }
+      return origJson(body);
+    };
+    return Promise.resolve(pay(req, res, next)).catch(next);
+  };
+}
+
+if (process.env.CDP_API_KEY_ID && process.env.CDP_API_KEY_SECRET) {
   const facilitatorClient = new HTTPFacilitatorClient(
     createCdpFacilitatorConfig(process.env.CDP_API_KEY_ID, process.env.CDP_API_KEY_SECRET)
   );
   const server = new x402ResourceServer(facilitatorClient);
   registerExactEvmScheme(server);
 
-  const chainExample = (name, gwei, usdcCost) => ({
-    chain: name, chainId: 1, nativeToken: "ETH", tokenPriceUsd: 3500,
+  // Bazaar discovery examples: real chain ids / native tokens so agents reading
+  // the sample do not see `chainId: 1` for every chain.
+  const chainExample = (name, chainId, nativeToken, tokenPriceUsd, gwei, usdcCost) => ({
+    chain: name, chainId, nativeToken, tokenPriceUsd,
     gasPrice: { baseFeeGwei: gwei, priorityFeeGwei: "0.0010", totalFeeGwei: gwei },
     estimatedCosts: {
-      nativeTransfer: { native: "0.00004200", usdc: 0.147, gasUnits: "21000", label: "Simple native token transfer" },
-      erc20Transfer: { native: "0.00013000", usdc: 0.455, gasUnits: "65000", label: "ERC-20 token transfer" },
+      nativeTransfer: { native: "0.00004200", usdc: +(usdcCost * 0.14).toFixed(6), gasUnits: "21000", label: "Simple native token transfer" },
+      erc20Transfer: { native: "0.00013000", usdc: +(usdcCost * 0.43).toFixed(6), gasUnits: "65000", label: "ERC-20 token transfer" },
       dexSwap: { native: "0.00030000", usdc: usdcCost, gasUnits: "150000", label: "DEX swap (Uniswap-style)" },
     },
     status: "ok",
@@ -507,28 +540,53 @@ if (WALLET_ADDRESS) {
     success: true, timestamp: "2026-03-08T10:00:00.000Z", tier: "basic", totalLatencyMs: 420,
     tokenPrices: { ETH: 3500 },
     recommendation: { cheapestChain: "Base", cheapestChainId: 8453, estimatedCostsUsdc: { dexSwap: 0.001 }, vsExpensive: { chain: "Ethereum", dexSwapUsdc: 5.12, savingsPercent: "99.8%" }, action: "Use Base — saves 99.8% vs Ethereum" },
-    chains: [chainExample("Ethereum", "12.3456", 5.12), chainExample("Base", "0.0100", 0.001), chainExample("Arbitrum", "0.0200", 0.002), chainExample("Optimism", "0.0150", 0.0015)],
+    chains: [
+      chainExample("Ethereum", 1, "ETH", 3500, "12.3456", 5.12),
+      chainExample("Base", 8453, "ETH", 3500, "0.0100", 0.001),
+      chainExample("Arbitrum", 42161, "ETH", 3500, "0.0200", 0.002),
+      chainExample("Optimism", 10, "ETH", 3500, "0.0150", 0.0015),
+    ],
   };
 
   const premiumExample = {
     ...basicExample, tier: "premium",
-    chains: [...basicExample.chains, chainExample("BNB Chain", "1.0000", 0.05), chainExample("Polygon", "30.0000", 0.003), chainExample("Avalanche", "25.0000", 0.12), chainExample("zkSync Era", "0.0250", 0.002), chainExample("Hyperliquid", "0.5000", 0.01)],
+    tokenPrices: { ETH: 3500, BNB: 600, POL: 0.4, AVAX: 25, HYPE: 30 },
+    chains: [
+      ...basicExample.chains,
+      chainExample("BNB Chain", 56, "BNB", 600, "1.0000", 0.05),
+      chainExample("Polygon", 137, "POL", 0.4, "30.0000", 0.003),
+      chainExample("Avalanche", 43114, "AVAX", 25, "25.0000", 0.12),
+      chainExample("zkSync Era", 324, "ETH", 3500, "0.0250", 0.002),
+      chainExample("Hyperliquid", 999, "HYPE", 30, "0.5000", 0.01),
+    ],
   };
 
-  app.use("/gas/basic",
-    paymentMiddleware({ "GET /": { accepts: { scheme: "exact", price: "$0.001", network: "eip155:8453", payTo: WALLET_ADDRESS }, description: "Find the cheapest EVM chain before you transact. Compares live gas across Ethereum, Base, Arbitrum & Optimism and returns the cheapest chain with savings % (e.g. \"Use Base — saves 99.8% vs Ethereum\"). Call this before bridging, deploying, or any tx with chain flexibility. $0.001 USDC, no API key.", extensions: { ...declareDiscoveryExtension({ output: { example: basicExample, schema: outputSchema } }) } } }, server),
-    paidSessionMiddleware("basic"), gasRouter
-  );
+  // One middleware for both paid routes (one facilitator handshake per cold start).
+  // `resource` is explicit so the advertised URL is https regardless of proxy headers.
+  const paidRoutes = {
+    "GET /gas/basic": {
+      accepts: { scheme: "exact", price: "$0.001", network: "eip155:8453", payTo: WALLET_ADDRESS },
+      resource: `${API_BASE}/gas/basic`,
+      mimeType: "application/json",
+      description: "Find the cheapest EVM chain before you transact. Compares live gas across Ethereum, Base, Arbitrum & Optimism and returns the cheapest chain with savings % (e.g. \"Use Base — saves 99.8% vs Ethereum\"). Call this before bridging, deploying, or any tx with chain flexibility. $0.001 USDC, no API key.",
+      extensions: { ...declareDiscoveryExtension({ output: { example: basicExample, schema: outputSchema } }) },
+    },
+    "GET /gas/premium": {
+      accepts: { scheme: "exact", price: "$0.002", network: "eip155:8453", payTo: WALLET_ADDRESS },
+      resource: `${API_BASE}/gas/premium`,
+      mimeType: "application/json",
+      description: "Find the cheapest EVM chain across 9 networks before you transact. Covers Ethereum, Base, Arbitrum, Optimism, BNB, Polygon, Avalanche, zkSync & Hyperliquid; returns the cheapest chain with savings % so agents route txs to the lowest-fee chain. Best for cross-chain routing decisions. $0.002 USDC, no API key.",
+      extensions: { ...declareDiscoveryExtension({ output: { example: premiumExample, schema: { ...outputSchema } } }) },
+    },
+  };
 
-  app.use("/gas/premium",
-    paymentMiddleware({ "GET /": { accepts: { scheme: "exact", price: "$0.002", network: "eip155:8453", payTo: WALLET_ADDRESS }, description: "Find the cheapest EVM chain across 9 networks before you transact. Covers Ethereum, Base, Arbitrum, Optimism, BNB, Polygon, Avalanche, zkSync & Hyperliquid; returns the cheapest chain with savings % so agents route txs to the lowest-fee chain. Best for cross-chain routing decisions. $0.002 USDC, no API key.", extensions: { ...declareDiscoveryExtension({ output: { example: premiumExample, schema: { ...outputSchema } } }) } } }, server),
-    paidSessionMiddleware("premium"), gasRouter
-  );
+  app.use(withV1Body(paymentMiddleware(paidRoutes, server)));
+  app.use("/gas/basic", paidSessionMiddleware("basic"), gasRouter);
+  app.use("/gas/premium", paidSessionMiddleware("premium"), gasRouter);
 } else {
-  app.use("/gas/basic", (req, res) => res.status(503).json({ error: "Payment not configured." }));
-  app.use("/gas/premium", (req, res) => res.status(503).json({ error: "Payment not configured." }));
+  app.use("/gas/basic", (req, res) => res.status(503).json({ error: "Payment not configured (CDP credentials missing)." }));
+  app.use("/gas/premium", (req, res) => res.status(503).json({ error: "Payment not configured (CDP credentials missing)." }));
 }
-
 app.use((err, req, res, next) => {
   console.error("[ERROR]", err.message);
   res.status(500).json({ error: "Internal server error" });
