@@ -7,6 +7,7 @@ const { declareDiscoveryExtension } = require("@x402/extensions/bazaar");
 const gasRouter = require("../routes/gas");
 const { demoSessionMiddleware, paidSessionMiddleware, TIER_PRICING } = require("../middleware/session");
 const { demoRateLimit } = require("../middleware/rateLimit");
+const { accessLog, statsHandler } = require("../lib/accessLog");
 const fs = require("fs");
 const path = require("path");
 
@@ -280,6 +281,9 @@ async function callMcpTool(toolName) {
   return formatGasData(await res.json());
 }
 
+// ─── Access logging (Upstash Redis) ─────────────────────────────────────────
+app.use(accessLog);
+
 // ─── CORS & body parsing ────────────────────────────────────────────────────
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -407,6 +411,7 @@ app.get("/openapi.json", (req, res) => { res.json(OPENAPI_SPEC); });
 // can render one. Redirect to the canonical favicon on the marketing site.
 app.get("/favicon.ico", (req, res) => { res.redirect(302, "https://chain-ops.xyz/favicon.ico"); });
 app.get("/health", (req, res) => { res.json({ status: "ok", timestamp: new Date().toISOString(), version: "2.2.0" }); });
+app.get("/stats", statsHandler);
 
 // ─── Temporary diagnostic: is MGO listed in the CDP x402 Bazaar? ─────────
 // 붙여넣을 위치: api/index.js 의 app.get("/health", ...) 줄 바로 아래
