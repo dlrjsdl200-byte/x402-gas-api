@@ -56,7 +56,7 @@
 ### 6. Moltbook m/evm-gas Submolt 개설
 ```powershell
 Invoke-RestMethod -Method POST -Uri "https://www.moltbook.com/api/v1/submolts" `
-  -Headers @{"Authorization"="Bearer moltbook_sk_q-qdAzvUFFXwLdaSRd8zRP5r9iQngPWL"} `
+  -Headers @{"Authorization"="Bearer $env:MOLTBOOK_API_KEY"} `
   -ContentType "application/json" `
   -Body '{"name":"evm-gas","display_name":"EVM Gas Intelligence","description":"Real-time gas price data, chain comparisons, and cost optimization for AI agents on EVM networks."}'
 ```

@@ -47,24 +47,28 @@ Server health check.
 Payment is automated via the x402 protocol (HTTP 402 Payment Required). No manual transfers needed.
 
 1. Send GET request to a paid endpoint
-2. Receive 402 response with payment requirements (price, network, payTo address)
-3. Client library signs an EIP-712 USDC authorization on Base
-4. Resend request with `X-PAYMENT` header
-5. Facilitator verifies payment → API returns data → USDC is settled on-chain
+2. Receive 402 response; payment requirements (price, network, payTo) are in the `PAYMENT-REQUIRED` header (base64 JSON, x402 v2). A v1-style copy is also in the body for legacy clients.
+3. Client library signs an EIP-3009 USDC authorization on Base (eip155:8453)
+4. Resend request with `PAYMENT-SIGNATURE` header
+5. Facilitator verifies payment → API returns data (settlement receipt in `PAYMENT-RESPONSE` header) → USDC is settled on-chain
 
 ### Client Libraries
 ```javascript
-// Using @x402/axios
-const { withPayment } = require("@x402/axios");
-const client = withPayment(axios.create(), walletClient);
-const res = await client.get("https://api.mgo.chain-ops.xyz/gas/basic");
+// Using @x402/fetch (x402 v2)
+const { wrapFetchWithPayment } = require("@x402/fetch");
+const { x402Client } = require("@x402/core/client");
+const { ExactEvmScheme } = require("@x402/evm/exact/client");
+const { privateKeyToAccount } = require("viem/accounts");
+const client = new x402Client().register("eip155:*", new ExactEvmScheme(privateKeyToAccount(process.env.EVM_PRIVATE_KEY)));
+const paidFetch = wrapFetchWithPayment(fetch, client);
+const res = await paidFetch("https://api.mgo.chain-ops.xyz/gas/basic");
 ```
 
 ```javascript
-// Using @x402/fetch
-const { withPayment } = require("@x402/fetch");
-const paidFetch = withPayment(fetch, walletClient);
-const res = await paidFetch("https://api.mgo.chain-ops.xyz/gas/basic");
+// Using @x402/axios (x402 v2)
+const { wrapAxiosWithPayment } = require("@x402/axios");
+const api = wrapAxiosWithPayment(axios.create(), client); // same x402Client as above
+const res = await api.get("https://api.mgo.chain-ops.xyz/gas/premium");
 ```
 
 ## Response Format
@@ -143,7 +147,7 @@ const res = await paidFetch("https://api.mgo.chain-ops.xyz/gas/basic");
   "meta": {
     "provider": "MGO — Multi-chain Gas Optimizer",
     "protocol": "x402",
-    "version": "2.0.0",
+    "version": "2.2.0",
     "tier": "basic",
     "chainsQueried": 4,
     "chainsSucceeded": 4,

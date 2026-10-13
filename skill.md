@@ -53,7 +53,7 @@ Full 9-chain comparison including BNB, Polygon, Avalanche, zkSync, Hyperliquid.
 Protocol: x402  
 Network: Base (eip155:8453)  
 Token: USDC  
-Wallet: 0xEC3cAf9281a1b5371F76ee3A3eAb895fdECCe31e
+Wallet: 0x665bab4c46a6ae3f755e71793e5685bc6c47dd7a
 
 ```javascript
 // x402-fetch example
