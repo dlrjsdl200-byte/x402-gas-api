@@ -38,12 +38,9 @@ const ETH_TRANSFER_GAS = 21000n;
 const ERC20_TRANSFER_GAS = 65000n;
 const DEX_SWAP_GAS = 150000n;
 
-// ── CoinGecko price cache (1 min) ──
-const COINGECKO_IDS = "ethereum,binancecoin,polygon-ecosystem-token,avalanche-2,hyperliquid";
-const GECKO_MAP = {
-  ethereum: "ETH", binancecoin: "BNB",
-  "polygon-ecosystem-token": "POL", "avalanche-2": "AVAX", hyperliquid: "HYPE",
-};
+// ── Token prices via our API (server-side CoinGecko cache shared by all visitors).
+// Calling CoinGecko from every browser got rate-limited and rendered every cost as $0.
+const PRICES_URL = "https://api.mgo.chain-ops.xyz/prices";
 
 let priceCache = null;
 let priceFetchedAt = 0;
@@ -53,20 +50,15 @@ async function getTokenPrices() {
   if (priceCache && now - priceFetchedAt < 60_000) return priceCache;
 
   try {
-    const res = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${COINGECKO_IDS}&vs_currencies=usd`,
-      { signal: AbortSignal.timeout(10_000) }
-    );
+    const res = await fetch(PRICES_URL, { signal: AbortSignal.timeout(8_000) });
+    if (!res.ok) throw new Error(`prices ${res.status}`);
     const data = await res.json();
-    const prices = {};
-    for (const [geckoId, symbol] of Object.entries(GECKO_MAP)) {
-      prices[symbol] = data[geckoId]?.usd ?? 0;
-    }
-    priceCache = prices;
+    if (!(data?.prices?.ETH > 0)) throw new Error("no ETH price");
+    priceCache = data.prices;
     priceFetchedAt = now;
-    return prices;
+    return priceCache;
   } catch {
-    return priceCache || { ETH: 0, BNB: 0, POL: 0, AVAX: 0, HYPE: 0 };
+    return priceCache; // null when nothing usable yet; caller shows "price unavailable"
   }
 }
 
@@ -158,7 +150,7 @@ async function fetchOne(client, chainConfig, tokenPrices, opL1Fees) {
 }
 
 // ── Hook ──
-const POLL_INTERVAL = 3000;
+const POLL_INTERVAL = 10000; // public RPCs; 3s was aggressive
 
 export function useGasPrices() {
   const [data, setData] = useState(null);
@@ -169,13 +161,13 @@ export function useGasPrices() {
 
   async function fetchAll() {
     try {
-      const [tokenPrices, opL1Fees] = await Promise.all([
+      const [tokenPricesRaw, opL1Fees] = await Promise.all([
         getTokenPrices(),
         fetchOptimismL1Fees(),
       ]);
 
       const results = await Promise.allSettled(
-        CHAINS.map((c, i) => fetchOne(clients[i], c, tokenPrices, opL1Fees))
+        CHAINS.map((c, i) => fetchOne(clients[i], c, tokenPricesRaw || {}, opL1Fees))
       );
 
       const gasData = results.map((r, i) =>
@@ -191,10 +183,18 @@ export function useGasPrices() {
             }
       );
 
+      const tokenPrices = tokenPricesRaw;
       const validData = gasData.filter((g) => g.status === "ok");
 
       if (validData.length === 0) {
         setError("All RPC calls failed");
+        return;
+      }
+      if (!tokenPrices) {
+        // Gas data is fine but USD prices are not; do not rank chains on $0.
+        setData({ chains: gasData, cheapest: null, savingsPercent: null, vsChain: null, tokenPrices: null, priceUnavailable: true });
+        setError("Token price feed unavailable, showing gas only");
+        setLastUpdate(new Date());
         return;
       }
 

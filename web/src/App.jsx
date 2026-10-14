@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useGasPrices } from "./useGasPrices";
 
 function formatUsdc(value) {
-  if (value === undefined || value === null) return "—";
+  if (value === undefined || value === null || value === 0) return "—";
   if (value < 0.000001) return "$0.000000";
   if (value < 0.01) return `$${value.toFixed(6)}`;
   return `$${value.toFixed(4)}`;
@@ -45,24 +45,35 @@ export default function App() {
 
       {data && (
         <>
-          {/* Recommendation */}
-          <div className="recommendation">
-            <div className="recommendation__content">
-              <span className="recommendation__label">RECOMMENDED</span>
-              <span className="recommendation__chain">{data.cheapest}</span>
-              <span className="recommendation__desc">
-                lowest cost for DEX swap right now
-              </span>
+          {/* Recommendation (only when USD prices are available) */}
+          {data.cheapest ? (
+            <div className="recommendation">
+              <div className="recommendation__content">
+                <span className="recommendation__label">RECOMMENDED</span>
+                <span className="recommendation__chain">{data.cheapest}</span>
+                <span className="recommendation__desc">
+                  lowest cost for DEX swap right now
+                </span>
+              </div>
+              <div className="recommendation__savings">
+                <span className="recommendation__savings-value">
+                  {data.savingsPercent}%
+                </span>
+                <span className="recommendation__savings-label">
+                  cheaper than {data.vsChain}
+                </span>
+              </div>
             </div>
-            <div className="recommendation__savings">
-              <span className="recommendation__savings-value">
-                {data.savingsPercent}%
-              </span>
-              <span className="recommendation__savings-label">
-                cheaper than {data.vsChain}
-              </span>
+          ) : (
+            <div className="recommendation">
+              <div className="recommendation__content">
+                <span className="recommendation__label">RECOMMENDATION PAUSED</span>
+                <span className="recommendation__desc">
+                  token price feed unavailable; gas prices below are live, USDC costs are hidden until prices return
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Basic Tier */}
           <div className="tier-section">
