@@ -10,10 +10,10 @@ npm install
 
 # 2. Set environment variables
 cp .env.example .env
-# Set WALLET_ADDRESS to your USDC receiving wallet on Base
+# Set WALLET_ADDRESS (USDC receiving wallet on Base) and CDP_API_KEY_ID/SECRET (facilitator auth)
 
-# 3. Run locally
-npm run dev
+# 3. Run locally (same entry point as production)
+npm start
 
 # 4. Test
 # Open in browser: http://localhost:3000/gas/demo
@@ -38,39 +38,52 @@ npm run dev
 | `GET /gas/demo` | Free | Raw gas prices only (10/hr rate limit) |
 | `GET /gas/basic` | $0.001 USDC (x402) | 4-chain comparison + recommendation + savings |
 | `GET /gas/premium` | $0.002 USDC (x402) | 9-chain full comparison |
-| `GET /llms.txt` | Free | AI agent discovery file |
+| `GET /prices` | Free | Native token USD prices (ETH, BNB, POL, AVAX, HYPE), 60s cache |
+| `POST /mcp` | Free / x402 | MCP Streamable HTTP endpoint (tools: `get_gas_demo`, `get_cheapest_chain`, `get_gas_basic`, `get_gas_premium`) |
+| `GET /openapi.json` | Free | OpenAPI 3.1 spec |
+| `GET /llms.txt`, `/skill.md` | Free | AI agent discovery files |
+| `GET /.well-known/x402`, `/.well-known/x402.json`, `/.well-known/mcp.json`, `/.well-known/agent-card.json` | Free | Discovery metadata |
 | `GET /health` | Free | Server health check |
 
-## Payment Flow (x402 Protocol)
+## Payment Flow (x402 v2)
 
-1. `GET /gas/basic` or `/gas/premium` → 402 response with payment requirements
-2. Client signs EIP-712 USDC authorization (using x402-axios or x402-fetch)
-3. Resend with `X-PAYMENT` header → facilitator verifies → data response → on-chain settlement
+1. `GET /gas/basic` or `/gas/premium` → `402` with requirements in the `PAYMENT-REQUIRED` header (base64 JSON). A v1-shaped copy is also in the body for legacy clients.
+2. Client signs an EIP-3009 USDC authorization on Base (`eip155:8453`)
+3. Resend with `PAYMENT-SIGNATURE` header → facilitator (Coinbase CDP) verifies → data response with `PAYMENT-RESPONSE` receipt → USDC settled on-chain
+
+If the upstream RPC / price feed is unavailable the API answers `503` and **no payment is settled**.
 
 ```javascript
-// Client example (x402-axios)
-const { withPayment } = require("x402-axios");
-const client = withPayment(axios.create(), walletClient);
-const response = await client.get("https://api.mgo.chain-ops.xyz/gas/basic");
+// Client example (@x402/fetch, x402 v2)
+const { wrapFetchWithPayment } = require("@x402/fetch");
+const { x402Client } = require("@x402/core/client");
+const { ExactEvmScheme } = require("@x402/evm/exact/client");
+const { privateKeyToAccount } = require("viem/accounts");
+
+const client = new x402Client().register("eip155:*", new ExactEvmScheme(privateKeyToAccount(process.env.EVM_PRIVATE_KEY)));
+const paidFetch = wrapFetchWithPayment(fetch, client);
+const res = await paidFetch("https://api.mgo.chain-ops.xyz/gas/basic");
 ```
 
-## MCP Server (Claude / Cursor)
+## MCP (Claude / Cursor / any MCP client)
 
-```bash
-npm run mcp
-```
+Remote Streamable HTTP server, no install:
 
-Add to Claude Desktop config:
 ```json
 {
   "mcpServers": {
-    "mgo-gas": {
-      "command": "node",
-      "args": ["/path/to/x402-gas-api/mcp-server.js"]
-    }
+    "mgo-gas": { "url": "https://api.mgo.chain-ops.xyz/mcp" }
   }
 }
 ```
+
+Also published as npm package [`chain-ops-mgo`](https://www.npmjs.com/package/chain-ops-mgo) and in the official MCP Registry (`xyz.chain-ops/mgo`). Paid tools return the decoded x402 payment requirements; pay with an x402 client against the `resource` URL.
+
+## Operations
+
+- Access log + `/stats` (Upstash Redis, key via `STATS_KEY`; send it as `x-stats-key` header)
+- Demo rate limit and the CoinGecko price cache are shared through the same Redis
+- Secrets never live in this repo: see `.env.example`
 
 ## Deploy to Vercel
 

@@ -30,52 +30,62 @@ Chains: Ethereum, Base, Optimism, Arbitrum
 ### GET /gas/premium — $0.002 USDC
 Full 9-chain comparison including BNB, Polygon, Avalanche, zkSync, Hyperliquid.
 
-## Response Structure
+### GET /prices — Free
+Native token USD prices (ETH, BNB, POL, AVAX, HYPE), cached 60s.
+
+## Response Structure (basic / premium)
 
 ```json
 {
-  "cheapestChain": "Base",
-  "savingsPercent": "97.7%",
-  "recommendation": "Use Base — 97.7% cheaper than Ethereum",
+  "success": true,
+  "tier": "basic",
+  "recommendation": {
+    "cheapestChain": "Base",
+    "cheapestChainId": 8453,
+    "estimatedCostsUsdc": { "nativeTransfer": 0.0003, "erc20Transfer": 0.0009, "dexSwap": 0.0021 },
+    "vsExpensive": { "chain": "Ethereum", "dexSwapUsdc": 0.0379, "savingsPercent": "94.4%" },
+    "action": "Use Base — saves 94.4% vs Ethereum"
+  },
   "chains": [
     {
-      "name": "Base",
-      "gasPriceGwei": 0.001,
-      "estimatedCostUSDC": 0.000021,
-      "rank": 1
+      "chain": "Base", "chainId": 8453, "nativeToken": "ETH", "tokenPriceUsd": 2509.3,
+      "gasPrice": { "baseFeeGwei": "0.0060", "priorityFeeGwei": "0.0010", "totalFeeGwei": "0.0070" },
+      "estimatedCosts": { "dexSwap": { "native": "0.00000105", "usdc": 0.0021, "gasUnits": "150000" } },
+      "status": "ok"
     }
   ]
 }
 ```
+Demo responses have `recommendation: null` and no USDC figures.
 
-## Payment (x402)
+## Payment (x402 v2)
 
-Protocol: x402  
+Protocol: x402 (HTTP 402). Requirements are in the `PAYMENT-REQUIRED` response header; retry with `PAYMENT-SIGNATURE`.  
 Network: Base (eip155:8453)  
 Token: USDC  
-Wallet: 0x665bab4c46a6ae3f755e71793e5685bc6c47dd7a
+Pay to: 0x665bab4c46a6ae3f755e71793e5685bc6c47dd7a
 
 ```javascript
-// x402-fetch example
-import { wrapFetchWithPayment } from 'x402-fetch';
-const fetch402 = wrapFetchWithPayment(fetch, walletClient);
-const res = await fetch402('https://api.mgo.chain-ops.xyz/gas/basic');
+// @x402/fetch example (x402 v2)
+import { wrapFetchWithPayment } from "@x402/fetch";
+import { x402Client } from "@x402/core/client";
+import { ExactEvmScheme } from "@x402/evm/exact/client";
+import { privateKeyToAccount } from "viem/accounts";
+const client = new x402Client().register("eip155:*", new ExactEvmScheme(privateKeyToAccount(process.env.EVM_PRIVATE_KEY)));
+const fetch402 = wrapFetchWithPayment(fetch, client);
+const res = await fetch402("https://api.mgo.chain-ops.xyz/gas/basic");
 ```
 
-## MCP Server
-
-For Claude Desktop / Claude Code:
+## MCP Server (remote, no install)
 
 ```json
 {
   "mcpServers": {
-    "mgo-gas": {
-      "command": "node",
-      "args": ["/path/to/mcp-server.js"]
-    }
+    "mgo-gas": { "url": "https://api.mgo.chain-ops.xyz/mcp" }
   }
 }
 ```
+Tools: `get_gas_demo`, `get_cheapest_chain` (free), `get_gas_basic`, `get_gas_premium` (x402).
 
 ## Links
 - API: https://api.mgo.chain-ops.xyz
