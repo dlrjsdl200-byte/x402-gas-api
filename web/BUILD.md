@@ -34,7 +34,8 @@ Build output goes to `web/dist/`.
 - Uses `viem` to directly call public RPCs for Ethereum, Base, Arbitrum, Optimism
 - EIP-1559 gas price: baseFee (from latest block) + priorityFee (estimated)
 - Polls every 3 seconds (safe for public RPCs; change `POLL_INTERVAL` in `src/useGasPrices.js`)
-- No backend server required
+- Token USD prices come from `https://api.mgo.chain-ops.xyz/prices` (server-side CoinGecko cache); gas data still comes straight from public RPCs
+- Deployed by Vercel project `mgo-web` (root directory `web`) on every push to `main`
 
 ## File structure
 
