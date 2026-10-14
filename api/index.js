@@ -8,6 +8,7 @@ const gasRouter = require("../routes/gas");
 const { demoSessionMiddleware, paidSessionMiddleware, TIER_PRICING } = require("../middleware/session");
 const { demoRateLimit } = require("../middleware/rateLimit");
 const { accessLog, statsHandler } = require("../lib/accessLog");
+const { getTokenPricesDetailed } = require("../lib/priceCache");
 const fs = require("fs");
 const path = require("path");
 
@@ -60,14 +61,37 @@ Chains: Ethereum, Base, Optimism, Arbitrum
 ### GET /gas/premium — $0.002 USDC
 Full 9-chain comparison including BNB, Polygon, Avalanche, zkSync, Hyperliquid.
 
-## Payment (x402)
-Protocol: x402
+### GET /prices — Free
+Native token USD prices (ETH, BNB, POL, AVAX, HYPE), cached 60s.
+
+## Response shape (basic/premium)
+\`\`\`json
+{
+  "success": true,
+  "tier": "basic",
+  "recommendation": { "cheapestChain": "Base", "cheapestChainId": 8453,
+    "estimatedCostsUsdc": { "dexSwap": 0.0021 },
+    "vsExpensive": { "chain": "Ethereum", "savingsPercent": "94.4%" },
+    "action": "Use Base — saves 94.4% vs Ethereum" },
+  "chains": [ { "chain": "Base", "chainId": 8453, "gasPrice": { "baseFeeGwei": "0.0060" },
+    "estimatedCosts": { "dexSwap": { "usdc": 0.0021 } }, "status": "ok" } ]
+}
+\`\`\`
+
+## Payment (x402 v2)
+Protocol: x402 (HTTP 402). Requirements arrive in the PAYMENT-REQUIRED response header; retry with PAYMENT-SIGNATURE.
 Network: Base (eip155:8453)
 Token: USDC
+Pay to: ${PAY_TO}
+Client: @x402/fetch or @x402/axios (wrapFetchWithPayment / wrapAxiosWithPayment).
+
+## MCP
+Remote Streamable HTTP endpoint: https://api.mgo.chain-ops.xyz/mcp (tools: get_gas_demo, get_cheapest_chain, get_gas_basic, get_gas_premium)
 
 ## Links
 - Dashboard: https://mgo.chain-ops.xyz
 - llms.txt: https://api.mgo.chain-ops.xyz/llms.txt
+- OpenAPI: https://api.mgo.chain-ops.xyz/openapi.json
 - GitHub: https://github.com/dlrjsdl200-byte/x402-gas-api
 `;
 
@@ -146,6 +170,14 @@ const OPENAPI_SPEC = {
         operationId: "getGasDemo",
         security: [],
         responses: { "200": { description: "Gas comparison", content: { "application/json": { schema: { $ref: "#/components/schemas/GasResponse" } } } } }
+      }
+    },
+    "/prices": {
+      get: {
+        summary: "Free native token USD prices (ETH, BNB, POL, AVAX, HYPE), 60s cache",
+        operationId: "getPrices",
+        security: [],
+        responses: { "200": { description: "Prices", content: { "application/json": { schema: { type: "object", properties: { success: { type: "boolean" }, currency: { type: "string" }, prices: { type: "object" }, fetchedAt: { type: "string" }, ageSec: { type: "number" } } } } } } }
       }
     },
     "/gas/basic": {
@@ -431,6 +463,7 @@ app.get("/", (req, res) => {
       "/gas/basic": "Paid gas comparison (4 chains, $0.001 USDC via x402)",
       "/gas/premium": "Paid gas comparison (9 chains, $0.002 USDC via x402)",
       "/gas/demo": "Free demo (raw gas prices, 10/hr limit)",
+      "/prices": "Free native token USD prices (60s cache)",
       "/mcp": "Smithery MCP Streamable HTTP endpoint",
       "/llms.txt": "AI discovery file",
       "/skill.md": "OpenClaw skill file",
@@ -462,6 +495,19 @@ app.get("/openapi.json", (req, res) => { res.json(OPENAPI_SPEC); });
 app.get("/favicon.ico", (req, res) => { res.redirect(302, "https://chain-ops.xyz/favicon.ico"); });
 app.get("/health", (req, res) => { res.json({ status: "ok", timestamp: new Date().toISOString(), version: VERSION }); });
 app.get("/stats", statsHandler);
+
+// Free token prices, served from the shared cache so the dashboard does not
+// call CoinGecko from every browser (which got rate-limited and rendered $0).
+app.get("/prices", async (req, res) => {
+  try {
+    const out = await getTokenPricesDetailed();
+    res.setHeader("Cache-Control", "public, max-age=30");
+    res.json({ success: true, currency: "USD", ...out });
+  } catch (err) {
+    console.error("[PRICES]", err.message);
+    res.status(503).set("Retry-After", "30").json({ success: false, error: "Price feed unavailable" });
+  }
+});
 
 // ─── Gas routes ──────────────────────────────────────────────────────────────
 app.use("/gas/demo", demoRateLimit, demoSessionMiddleware, gasRouter);
