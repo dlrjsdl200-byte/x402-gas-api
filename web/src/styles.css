@@ -15,7 +15,7 @@
 
   --text-primary: #f0f0f0;
   --text-secondary: #8a8f98;
-  --text-muted: #4a4f58;
+  --text-muted: #7c828c; /* 4.6:1 on card bg; was #4a4f58 (2.3:1) */
 
   --color-success: #22c55e;
   --color-success-muted: rgba(34, 197, 94, 0.12);
@@ -102,11 +102,23 @@ body::after {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  background: rgba(34, 197, 94, 0.08);
-  border: 1px solid rgba(34, 197, 94, 0.15);
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
+.header__nav { display: flex; gap: 6px; margin-right: 8px; flex-wrap: wrap; }
+.header__link {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.header__link:hover, .header__link:focus-visible { color: var(--text-primary); border-color: var(--text-muted); outline: none; }
+.status-dot { margin-left: 8px; }
 
 .status-dot {
   width: 8px;
@@ -157,7 +169,7 @@ body::after {
 
 .recommendation__label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
   letter-spacing: 2px;
@@ -336,7 +348,7 @@ body::after {
 
 .chain-card__badge {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 1px;
   color: var(--color-success);
@@ -386,10 +398,10 @@ body::after {
 .chain-card__extra-cost {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--color-error);
-  opacity: 0.8;
+  color: var(--text-muted);
   margin-top: 2px;
 }
+.chain-card__extra-cost--max { color: var(--color-error); opacity: 0.9; }
 
 /* Divider */
 .divider {
@@ -611,7 +623,7 @@ body::after {
 
 .pricing-table {
   width: 100%;
-  min-width: 560px;
+  min-width: 520px;
   border-collapse: collapse;
   font-family: var(--font-body);
   font-size: 13px;
@@ -740,3 +752,46 @@ body::after {
     font-size: 13px;
   }
 }
+
+/* ── How to call (under pricing) ── */
+.howto {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+}
+.howto__steps { display: flex; flex-wrap: wrap; gap: 6px 10px; font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
+.howto__steps b { color: var(--text-primary); font-weight: 700; }
+.howto__arrow { color: var(--text-muted); }
+.howto__cmd { display: flex; align-items: center; gap: 10px; background: var(--bg-elevated); border-radius: 8px; padding: 8px 12px; }
+.howto__cmd code { font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); overflow-x: auto; white-space: nowrap; flex: 1; }
+.howto__copy { font-family: var(--font-body); font-size: 12px; color: var(--text-secondary); background: transparent; border: 1px solid var(--border-subtle); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.howto__copy:hover { color: var(--text-primary); border-color: var(--text-muted); }
+.howto__hint { margin: 10px 0 0; font-size: 12px; color: var(--text-muted); }
+.howto__hint a { color: var(--text-secondary); }
+
+/* ── Footer ── */
+.footer { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; justify-content: center; margin-top: 28px; font-size: 12px; color: var(--text-muted); text-align: center; }
+.footer__link { color: var(--text-secondary); text-decoration: none; }
+.footer__link:hover { color: var(--text-primary); }
+.footer__sep { color: var(--text-muted); }
+.footer__note { width: 100%; margin-top: 4px; }
+
+/* ── Phones: pricing table keeps the feature column visible while tiers scroll ── */
+@media (max-width: 640px) {
+  .pricing-table-wrapper { position: relative; }
+  .pricing-table-wrapper::after {
+    content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 28px; pointer-events: none;
+    background: linear-gradient(90deg, rgba(15,17,20,0), var(--bg-card));
+  }
+  .pricing-table__feature, .pricing-table__feature-header {
+    position: sticky; left: 0; z-index: 1; background: var(--bg-card);
+    box-shadow: 1px 0 0 var(--border-subtle);
+  }
+  .pricing-table thead .pricing-table__feature-header { background: var(--bg-elevated); }
+  .pricing-section__subtitle::after { content: " Swipe the table to compare tiers."; color: var(--text-muted); }
+  .header__nav { margin-right: 0; }
+  .header__link { font-size: 12px; padding: 5px 9px; }
+}
+@media (prefers-reduced-motion: reduce) { .status-dot, .status-bar__refresh, .skeleton { animation: none !important; } }

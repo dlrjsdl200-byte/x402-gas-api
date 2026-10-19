@@ -71,14 +71,19 @@ const oracleAbi = parseAbi([
   "function blobBaseFee() view returns (uint256)",
 ]);
 
-const CALLDATA_SIZES = { nativeTransfer: 0, erc20Transfer: 68, dexSwap: 260 };
+// Bytes posted to L1 for the whole signed tx (~110 bytes overhead + calldata). Same model as the API.
+const TX_OVERHEAD = 110;
+const CALLDATA_SIZES = { nativeTransfer: TX_OVERHEAD, erc20Transfer: TX_OVERHEAD + 68, dexSwap: TX_OVERHEAD + 260 };
+const ZERO_FEES = { nativeTransfer: 0n, erc20Transfer: 0n, dexSwap: 0n };
+// OP-stack chains whose users also pay an L1 data fee. Same GasPriceOracle predeploy on both.
+const L1_FEE_CHAINS = ["Optimism", "Base"];
 
-async function fetchOptimismL1Fees() {
-  const opIdx = CHAINS.findIndex((c) => c.name === "Optimism");
-  if (opIdx === -1) return { nativeTransfer: 0n, erc20Transfer: 0n, dexSwap: 0n };
+async function fetchL1FeesFor(chainName) {
+  const idx = CHAINS.findIndex((c) => c.name === chainName);
+  if (idx === -1) return ZERO_FEES;
 
   try {
-    const c = clients[opIdx];
+    const c = clients[idx];
     const [l1BaseFee, baseFeeScalar, blobBaseFeeScalar, blobBaseFee] = await Promise.all([
       c.readContract({ address: OP_ORACLE, abi: oracleAbi, functionName: "l1BaseFee" }),
       c.readContract({ address: OP_ORACLE, abi: oracleAbi, functionName: "baseFeeScalar" }),
@@ -88,24 +93,29 @@ async function fetchOptimismL1Fees() {
 
     const fees = {};
     for (const [txType, bytes] of Object.entries(CALLDATA_SIZES)) {
-      if (bytes === 0) { fees[txType] = 0n; continue; }
       const scaledL1 = BigInt(baseFeeScalar) * l1BaseFee * 16n;
       const scaledBlob = BigInt(blobBaseFeeScalar) * blobBaseFee;
       fees[txType] = (scaledL1 + scaledBlob) * BigInt(bytes) / 1000000n;
     }
     return fees;
   } catch {
-    return { nativeTransfer: 0n, erc20Transfer: 0n, dexSwap: 0n };
+    return ZERO_FEES;
   }
 }
 
+async function fetchL1Fees() {
+  const list = await Promise.all(L1_FEE_CHAINS.map((n) => fetchL1FeesFor(n)));
+  return Object.fromEntries(L1_FEE_CHAINS.map((n, i) => [n, list[i]]));
+}
+
 // ── Fetch single chain ──
-function buildChainResult(chainConfig, block, priorityFee, tokenPrices, opL1Fees, start) {
+function buildChainResult(chainConfig, block, priorityFee, tokenPrices, l1FeesByChain, start) {
   const baseFee = block.baseFeePerGas ?? 0n;
   const totalFee = baseFee + priorityFee;
   const nativeToken = CHAIN_NATIVE_TOKEN[chainConfig.name] || "ETH";
   const tokenPrice = tokenPrices[nativeToken] || 0;
-  const isOp = chainConfig.name === "Optimism";
+  const isOp = L1_FEE_CHAINS.includes(chainConfig.name);
+  const opL1Fees = (l1FeesByChain && l1FeesByChain[chainConfig.name]) || ZERO_FEES;
 
   const l2Cost = (gasUnits) => Number(totalFee * gasUnits) / 1e18;
   const l1Native = isOp ? Number(opL1Fees.nativeTransfer) / 1e18 : 0;
@@ -140,17 +150,17 @@ function buildChainResult(chainConfig, block, priorityFee, tokenPrices, opL1Fees
   };
 }
 
-async function fetchOne(client, chainConfig, tokenPrices, opL1Fees) {
+async function fetchOne(client, chainConfig, tokenPrices, l1FeesByChain) {
   const start = Date.now();
   const [block, priorityFee] = await Promise.all([
     client.getBlock({ blockTag: "latest" }),
     client.estimateMaxPriorityFeePerGas().catch(() => 100000000n),
   ]);
-  return buildChainResult(chainConfig, block, priorityFee, tokenPrices, opL1Fees, start);
+  return buildChainResult(chainConfig, block, priorityFee, tokenPrices, l1FeesByChain, start);
 }
 
 // ── Hook ──
-const POLL_INTERVAL = 10000; // public RPCs; 3s was aggressive
+const POLL_INTERVAL = 30000; // public RPCs: 9 chains x ~2 calls per cycle, be polite
 
 export function useGasPrices() {
   const [data, setData] = useState(null);
@@ -163,7 +173,7 @@ export function useGasPrices() {
     try {
       const [tokenPricesRaw, opL1Fees] = await Promise.all([
         getTokenPrices(),
-        fetchOptimismL1Fees(),
+        fetchL1Fees(),
       ]);
 
       const results = await Promise.allSettled(
@@ -202,20 +212,24 @@ export function useGasPrices() {
       const cheapest = validData.reduce((min, cur) =>
         cur.costs.dexSwap.usdc < min.costs.dexSwap.usdc ? cur : min
       );
+      // Savings are quoted against Ethereum (the benchmark everyone knows); if Ethereum
+      // is down, fall back to the most expensive chain that answered.
       const mostExpensive = validData.reduce((max, cur) =>
         cur.costs.dexSwap.usdc > max.costs.dexSwap.usdc ? cur : max
       );
+      const ethereum = validData.find((c) => c.chain === "Ethereum");
+      const benchmark = ethereum && ethereum.chain !== cheapest.chain ? ethereum : mostExpensive;
 
       const savingsPercent =
-        mostExpensive.costs.dexSwap.usdc > 0
-          ? ((1 - cheapest.costs.dexSwap.usdc / mostExpensive.costs.dexSwap.usdc) * 100).toFixed(1)
+        benchmark.costs.dexSwap.usdc > 0
+          ? ((1 - cheapest.costs.dexSwap.usdc / benchmark.costs.dexSwap.usdc) * 100).toFixed(1)
           : "0";
 
       setData({
         chains: gasData,
         cheapest: cheapest.chain,
         savingsPercent,
-        vsChain: mostExpensive.chain,
+        vsChain: benchmark.chain,
         tokenPrices,
       });
       setError(null);
@@ -229,8 +243,12 @@ export function useGasPrices() {
 
   useEffect(() => {
     fetchAll();
-    intervalRef.current = setInterval(fetchAll, POLL_INTERVAL);
-    return () => clearInterval(intervalRef.current);
+    const start = () => { if (!intervalRef.current) intervalRef.current = setInterval(fetchAll, POLL_INTERVAL); };
+    const stop = () => { clearInterval(intervalRef.current); intervalRef.current = null; };
+    const onVisibility = () => { if (document.hidden) stop(); else { fetchAll(); start(); } };
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVisibility); };
   }, []);
 
   return { data, error, loading, lastUpdate, refetch: fetchAll };

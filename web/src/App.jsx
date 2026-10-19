@@ -32,6 +32,11 @@ export default function App() {
           </p>
         </div>
         <div className="header__right">
+          <nav className="header__nav" aria-label="Links">
+            <a className="header__link" href="https://api.mgo.chain-ops.xyz/llms.txt" target="_blank" rel="noopener">API docs</a>
+            <a className="header__link" href="https://api.mgo.chain-ops.xyz/gas/demo" target="_blank" rel="noopener">Try free demo</a>
+            <a className="header__link" href="https://github.com/dlrjsdl200-byte/x402-gas-api" target="_blank" rel="noopener">GitHub</a>
+          </nav>
           <span className="status-dot" />
           <span className="status-label">LIVE</span>
         </div>
@@ -52,7 +57,7 @@ export default function App() {
                 <span className="recommendation__label">RECOMMENDED</span>
                 <span className="recommendation__chain">{data.cheapest}</span>
                 <span className="recommendation__desc">
-                  lowest cost for DEX swap right now
+                  lowest DEX-swap cost right now, L1 data fees included
                 </span>
               </div>
               <div className="recommendation__savings">
@@ -119,22 +124,23 @@ export default function App() {
           <div className="pricing-section">
             <h2 className="pricing-section__title">Choose Your Plan</h2>
             <p className="pricing-section__subtitle">
-              Pay per API call with USDC on Base. No subscriptions.
+              Pay per API call with USDC on Base. No subscriptions, no API key.
             </p>
+            <HowToCall />
             <div className="pricing-table-wrapper">
               <table className="pricing-table">
                 <thead>
                   <tr>
-                    <th className="pricing-table__feature-header">Feature</th>
-                    <th className="pricing-table__tier-header pricing-table__tier-header--demo">
+                    <th scope="col" className="pricing-table__feature-header">Feature</th>
+                    <th scope="col" className="pricing-table__tier-header pricing-table__tier-header--demo">
                       <span className="pricing-table__tier-name">Demo</span>
                       <span className="pricing-table__tier-price">Free</span>
                     </th>
-                    <th className="pricing-table__tier-header pricing-table__tier-header--basic">
+                    <th scope="col" className="pricing-table__tier-header pricing-table__tier-header--basic">
                       <span className="pricing-table__tier-name">Basic</span>
                       <span className="pricing-table__tier-price">$0.001</span>
                     </th>
-                    <th className="pricing-table__tier-header pricing-table__tier-header--premium">
+                    <th scope="col" className="pricing-table__tier-header pricing-table__tier-header--premium">
                       <span className="pricing-table__tier-name">Premium</span>
                       <span className="pricing-table__tier-price">$0.002</span>
                     </th>
@@ -155,7 +161,7 @@ export default function App() {
                   </tr>
                   <tr>
                     <td className="pricing-table__feature">Estimated Costs (USDC)</td>
-                    <td className="pricing-table__cell"><span className="pricing-check">&#10003;</span></td>
+                    <td className="pricing-table__cell"><span className="pricing-cross">&#10005;</span></td>
                     <td className="pricing-table__cell"><span className="pricing-check">&#10003;</span></td>
                     <td className="pricing-table__cell"><span className="pricing-check">&#10003;</span></td>
                   </tr>
@@ -200,15 +206,53 @@ export default function App() {
             </div>
           </div>
 
+          <footer className="footer">
+            <a href="https://chain-ops.xyz" className="footer__link">← chain-ops.xyz</a>
+            <span className="footer__sep">·</span>
+            <a href="https://api.mgo.chain-ops.xyz/openapi.json" className="footer__link" target="_blank" rel="noopener">OpenAPI</a>
+            <span className="footer__sep">·</span>
+            <a href="https://api.mgo.chain-ops.xyz/mcp" className="footer__link" target="_blank" rel="noopener">MCP endpoint</a>
+            <span className="footer__sep">·</span>
+            <span className="footer__note">Gas data straight from public RPCs; USD prices via api.mgo.chain-ops.xyz/prices. Arbitrum and zkSync costs exclude their L1 component.</span>
+          </footer>
+
           {/* Status Bar */}
           <div className="status-bar">
             <span className="status-bar__time">
-              Updated {lastUpdate?.toLocaleTimeString()}
+              Updated {lastUpdate?.toLocaleTimeString("en-US", { hour12: false })} · refreshes every 30s
             </span>
             <span className="status-bar__refresh" key={refreshKey} />
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function HowToCall() {
+  const [copied, setCopied] = useState(false);
+  const cmd = "curl -i https://api.mgo.chain-ops.xyz/gas/basic";
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(cmd); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+  };
+  return (
+    <div className="howto">
+      <div className="howto__steps">
+        <span><b>GET</b> /gas/basic</span>
+        <span className="howto__arrow">→</span>
+        <span><b>402</b> with PAYMENT-REQUIRED</span>
+        <span className="howto__arrow">→</span>
+        <span>sign <b>$0.001 USDC</b> (x402 client)</span>
+        <span className="howto__arrow">→</span>
+        <span><b>JSON</b> + on-chain receipt</span>
+      </div>
+      <div className="howto__cmd">
+        <code>{cmd}</code>
+        <button type="button" className="howto__copy" onClick={copy} aria-label="Copy command">{copied ? "Copied" : "Copy"}</button>
+      </div>
+      <p className="howto__hint">
+        Works with <a href="https://www.npmjs.com/package/@x402/fetch" target="_blank" rel="noopener">@x402/fetch</a>, <a href="https://www.npmjs.com/package/@chain-ops/agent-sdk" target="_blank" rel="noopener">@chain-ops/agent-sdk</a>, or any x402 v1/v2 client. Full docs: <a href="https://api.mgo.chain-ops.xyz/llms.txt" target="_blank" rel="noopener">llms.txt</a>
+      </p>
     </div>
   );
 }
@@ -222,7 +266,7 @@ function ChainCard({ chain, index, data }) {
       >
         <div className="chain-card__header">
           <span className="chain-card__dot" />
-          <span className="chain-card__name">{chain.chain}</span>
+          <h3 className="chain-card__name">{chain.chain}</h3>
           <span className="chain-card__chain-id">#{chain.chainId}</span>
         </div>
         <div className="chain-card__hero">
@@ -238,19 +282,21 @@ function ChainCard({ chain, index, data }) {
   const cheapestUsdc =
     data.chains.find((c) => c.chain === data.cheapest)?.costs?.dexSwap?.usdc || 0;
   const thisUsdc = chain.costs.dexSwap.usdc;
-  const extraPercent =
-    !isCheapest && cheapestUsdc > 0
-      ? (((thisUsdc - cheapestUsdc) / cheapestUsdc) * 100).toFixed(1)
-      : null;
+  // How many times the cheapest chain this one costs (e.g. "44× Optimism").
+  const multiple =
+    !isCheapest && cheapestUsdc > 0 ? thisUsdc / cheapestUsdc : null;
+  const multipleLabel =
+    multiple === null ? null : multiple < 10 ? multiple.toFixed(1) : Math.round(multiple).toString();
+  const isMostExpensive = chain.chain === data.vsChain;
 
   return (
-    <div
+    <article
       className={`chain-card${isCheapest ? " chain-card--cheapest" : ""}`}
       style={{ "--accent": chain.color, "--delay": index }}
     >
       <div className="chain-card__header">
         <span className="chain-card__dot" />
-        <span className="chain-card__name">{chain.chain}</span>
+        <h3 className="chain-card__name">{chain.chain}</h3>
         <span className="chain-card__chain-id">#{chain.chainId}</span>
         {isCheapest && <span className="chain-card__badge">CHEAPEST</span>}
       </div>
@@ -264,9 +310,9 @@ function ChainCard({ chain, index, data }) {
           </span>
           <span className="chain-card__total-unit">USDC</span>
         </div>
-        {extraPercent && (
-          <span className="chain-card__extra-cost">
-            +{extraPercent}% vs {data.cheapest}
+        {multipleLabel && (
+          <span className={`chain-card__extra-cost${isMostExpensive ? " chain-card__extra-cost--max" : ""}`}>
+            {multipleLabel}× {data.cheapest}
           </span>
         )}
       </div>
@@ -319,7 +365,7 @@ function ChainCard({ chain, index, data }) {
         <span>Block {chain.blockNumber}</span>
         <span>{chain.latencyMs}ms</span>
       </div>
-    </div>
+    </article>
   );
 }
 
