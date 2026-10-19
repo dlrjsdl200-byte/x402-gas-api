@@ -4,7 +4,7 @@
 Base URL: https://api.mgo.chain-ops.xyz
 
 ## Why pay for this?
-A single DEX swap on Ethereum can cost $5–50+ in gas. MGO compares gas costs across multiple chains in real-time and tells you which chain is cheapest — potentially saving 90–99% on transaction fees. The API costs $0.001–$0.002 USDC per call, which is negligible compared to the gas savings it identifies.
+The same DEX swap routinely costs 10–100× more on Ethereum mainnet than on an L2 such as Base or Optimism, and the ranking between L2s changes hour to hour. MGO compares live gas costs across up to 9 EVM chains (L1 data fees included for OP-stack chains) and returns the cheapest chain with the savings percentage. The API costs $0.001–$0.002 USDC per call, which is small next to the fee difference it identifies.
 
 ## Tiers
 
