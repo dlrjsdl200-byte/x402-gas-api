@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://mgo.chain-ops.xyz/sitemap.xml
